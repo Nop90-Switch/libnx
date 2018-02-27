@@ -1,15 +1,8 @@
 all:
-	make -C crt0/
-	make -C nx/
-	make -C tools/
+	$(MAKE) -C nx/
 
 install:
-	make -C buildscripts/ install
-	make -C crt0/ install
-	make -C nx/ install
-	make -C tools/ install
+	$(MAKE) -C nx/ install
 
 clean:
-	make -C crt0/ clean
-	make -C nx/ clean
-	make -C tools/ clean
+	$(MAKE) -C nx/ clean

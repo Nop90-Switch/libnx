@@ -2,11 +2,11 @@
 .SUFFIXES:
 #---------------------------------------------------------------------------------
 
-ifeq ($(strip $(DEVKITA64)),)
-$(error "Please set DEVKITA64 in your environment. export DEVKITA64=<path to>devkitA64")
+ifeq ($(strip $(DEVKITPRO)),)
+$(error "Please set DEVKITPRO in your environment. export DEVKITPRO=<path to>/devkitpro")
 endif
 
-include $(DEVKITA64)/base_rules
+include $(DEVKITPRO)/devkitA64/base_rules
 
 export LIBNX_MAJOR	:= 1
 export LIBNX_MINOR	:= 0
@@ -24,23 +24,22 @@ VERSION	:=	$(LIBNX_MAJOR).$(LIBNX_MINOR).$(LIBNX_PATCH)
 #---------------------------------------------------------------------------------
 TARGET		:=	nx
 #BUILD		:=	build
-SOURCES		:=	source/system source/kernel source/services source/heap
-
+SOURCES		:=	source/arm source/runtime source/kernel source/runtime/devices source/services source/gfx source/gfx/ioctl source/runtime/util/utf
 DATA		:=	data
 INCLUDES	:=	include
 
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
-ARCH	:=	-march=armv8-a
+ARCH	:=	-march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC -ftls-model=local-exec
 
-CFLAGS	:=	-g -Wall -Werror -fPIC \
+CFLAGS	:=	-g -Wall -Werror \
 			-ffunction-sections \
 			-fdata-sections \
 			$(ARCH) \
 			$(BUILD_CFLAGS)
 
-CFLAGS	+=	$(INCLUDE)
+CFLAGS	+=	$(INCLUDE) -DSWITCH
 
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 
@@ -86,7 +85,8 @@ export OFILES	:=	$(addsuffix .o,$(BINFILES)) \
 
 export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
-			-I.
+			-I. \
+			-iquote $(CURDIR)/include/switch/
 
 .PHONY: clean all
 
@@ -94,10 +94,10 @@ export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 all: lib/libnx.a lib/libnxd.a
 
 dist-bin: all
-	@tar --exclude=*~ -cjf libnx-$(VERSION).tar.bz2 include lib
+	@tar --exclude=*~ -cjf libnx-$(VERSION).tar.bz2 include lib default_icon.jpg switch_rules switch.ld switch.specs
 
 dist-src:
-	@tar --exclude=*~ -cjf libnx-src-$(VERSION).tar.bz2 include source data Makefile # Doxyfile Doxyfile.internal
+	@tar --exclude=*~ -cjf libnx-src-$(VERSION).tar.bz2 include source data Makefile default_icon.jpg switch_rules switch.ld switch.specs
 
 dist: dist-src dist-bin
 
