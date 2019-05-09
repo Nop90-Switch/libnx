@@ -1,28 +1,17 @@
 {
   "targets": {
     "lib": {
-      "buildenv": "xenial-amd64",
-      "builddeps": [
-        "wget", "p7zip-full", "build-essential", "git"
-      ],
 
-      "environment": {
-        "DEVKITPATH": "/project/devkitA64_a6",
-        "DEVKITURL": "https://downloads.sourceforge.net/project/devkitpro/devkitA64/alpha6/devkitA64_a6-x86_64-linux.7z"
-      },
+      "buildenv": "docker:devkitpro/devkita64",
 
       "buildcmd": [
-        "[ ! -d ${DEVKITPATH} ] && (rm -rf ${DEVKITPATH} && mkdir ${DEVKITPATH} && wget -O /tmp/devkita64.7z ${DEVKITURL} && cd ${DEVKITPATH} && 7z x -y /tmp/devkita64.7z) || /bin/true",
-
-        "DEVKITPRO=${DEVKITPATH} make -j${PARALLEL} install",
-        "git clone --depth 1 https://github.com/switchbrew/switch-examples",
-        "DEVKITPRO=${DEVKITPATH} make -C switch-examples/"
+        "sudo -E make -j${PARALLEL} -C nx install"
       ]
     },
 
     "docs": {
-       // Only invoke docs target when building from master branch
-      "branch": "master",
+       // This target build and upload docs and will be trigged from doozer's CD script
+      "auto": false,
 
       "buildenv": "xenial-amd64",
       "builddeps": [

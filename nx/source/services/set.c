@@ -5,16 +5,20 @@
  * @author yellows8
  * @copyright libnx Authors
  */
+#include <string.h>
 #include "types.h"
 #include "result.h"
-#include "ipc.h"
-#include "kernel/detect.h"
+#include "arm/atomics.h"
+#include "kernel/ipc.h"
+#include "runtime/hosversion.h"
 #include "services/set.h"
 #include "services/sm.h"
 #include "services/applet.h"
 
 static Service g_setSrv;
 static Service g_setsysSrv;
+static u64 g_refCnt;
+static u64 g_refCntSys;
 
 static bool g_setLanguageCodesInitialized;
 static u64 g_setLanguageCodes[0x40];
@@ -24,8 +28,10 @@ static Result _setMakeLanguageCode(s32 Language, u64 *LanguageCode);
 
 Result setInitialize(void)
 {
+    atomicIncrement64(&g_refCnt);
+
     if (serviceIsActive(&g_setSrv))
-        return MAKERESULT(Module_Libnx, LibnxError_AlreadyInitialized);
+        return 0;
 
     g_setLanguageCodesInitialized = 0;
 
@@ -34,11 +40,15 @@ Result setInitialize(void)
 
 void setExit(void)
 {
-    serviceClose(&g_setSrv);
+    if (atomicDecrement64(&g_refCnt) == 0) {
+        serviceClose(&g_setSrv);
+    }
 }
 
 Result setsysInitialize(void)
 {
+    atomicIncrement64(&g_refCntSys);
+
     if (serviceIsActive(&g_setsysSrv))
         return MAKERESULT(Module_Libnx, LibnxError_AlreadyInitialized);
 
@@ -47,7 +57,9 @@ Result setsysInitialize(void)
 
 void setsysExit(void)
 {
-    serviceClose(&g_setsysSrv);
+    if (atomicDecrement64(&g_refCntSys) == 0) {
+        serviceClose(&g_setsysSrv);
+    }
 }
 
 static Result setInitializeLanguageCodesCache(void) {
@@ -88,7 +100,7 @@ Result setMakeLanguageCode(s32 Language, u64 *LanguageCode) {
         return MAKERESULT(Module_Libnx, LibnxError_BadInput);
 
     if (Language >= g_setLanguageCodesTotal) {
-        if (!kernelAbove400()) return MAKERESULT(Module_Libnx, LibnxError_BadInput);
+        if (hosversionBefore(4,0,0)) return MAKERESULT(Module_Libnx, LibnxError_BadInput);
         return _setMakeLanguageCode(Language, LanguageCode);
     }
 
@@ -144,7 +156,7 @@ Result setGetAvailableLanguageCodes(s32 *total_entries, u64 *LanguageCodes, size
     ipcInitialize(&c);
 
     Result rc=0;
-    bool new_cmd = kernelAbove400();
+    bool new_cmd = hosversionAtLeast(4,0,0);
 
     if (!new_cmd) {//On system-version <4.0.0 the sysmodule will close the session if max_entries is too large.
         s32 tmptotal = 0;
@@ -242,7 +254,7 @@ Result setGetAvailableLanguageCodeCount(s32 *total) {
     raw = ipcPrepareHeader(&c, sizeof(*raw));
 
     raw->magic = SFCI_MAGIC;
-    raw->cmd_id = kernelAbove400() ? 6 : 3;
+    raw->cmd_id = hosversionAtLeast(4,0,0) ? 6 : 3;
 
     Result rc = serviceIpcDispatch(&g_setSrv);
 
@@ -267,7 +279,7 @@ Result setGetAvailableLanguageCodeCount(s32 *total) {
     return rc;
 }
 
-Result setGetRegionCode(s32 *RegionCode) {
+Result setGetRegionCode(SetRegion *out) {
     IpcCommand c;
     ipcInitialize(&c);
 
@@ -295,13 +307,13 @@ Result setGetRegionCode(s32 *RegionCode) {
 
         rc = resp->result;
 
-        if (R_SUCCEEDED(rc) && RegionCode) *RegionCode = resp->RegionCode;
+        if (R_SUCCEEDED(rc) && out) *out = resp->RegionCode;
     }
 
     return rc;
 }
 
-Result setsysGetColorSetId(ColorSetId* out)
+Result setsysGetColorSetId(ColorSetId *out)
 {
     IpcCommand c;
     ipcInitialize(&c);
@@ -333,5 +345,344 @@ Result setsysGetColorSetId(ColorSetId* out)
     }
 
     return rc;
+}
 
+Result setsysSetColorSetId(ColorSetId id)
+{
+    IpcCommand c;
+    ipcInitialize(&c);
+
+    struct {
+        u64 magic;
+        u64 cmd_id;
+        s32 id;
+    } *raw;
+
+    raw = ipcPrepareHeader(&c, sizeof(*raw));
+
+    raw->magic = SFCI_MAGIC;
+    raw->cmd_id = 24;
+    raw->id = id;
+
+    Result rc = serviceIpcDispatch(&g_setsysSrv);
+
+    if (R_SUCCEEDED(rc)) {
+        IpcParsedCommand r;
+        ipcParse(&r);
+
+        struct {
+            u64 magic;
+            u64 result;
+        } *resp = r.Raw;
+
+        rc = resp->result;
+    }
+
+    return rc;
+}
+
+Result setsysGetSettingsItemValue(const char *name, const char *item_key, void *value_out, size_t value_out_size) {
+    char send_name[SET_MAX_NAME_SIZE];
+    char send_item_key[SET_MAX_NAME_SIZE];
+    
+    memset(send_name, 0, SET_MAX_NAME_SIZE);
+    memset(send_item_key, 0, SET_MAX_NAME_SIZE);
+    strncpy(send_name, name, SET_MAX_NAME_SIZE-1);
+    strncpy(send_item_key, item_key, SET_MAX_NAME_SIZE-1);
+
+    IpcCommand c;
+    ipcInitialize(&c);
+    ipcAddSendStatic(&c, send_name, SET_MAX_NAME_SIZE, 0);
+    ipcAddSendStatic(&c, send_item_key, SET_MAX_NAME_SIZE, 0);
+    ipcAddRecvBuffer(&c, value_out, value_out_size, 0);
+
+    struct {
+        u64 magic;
+        u64 cmd_id;
+    } *raw;
+
+    raw = ipcPrepareHeader(&c, sizeof(*raw));
+
+    raw->magic = SFCI_MAGIC;
+    raw->cmd_id = 38;
+
+    Result rc = serviceIpcDispatch(&g_setsysSrv);
+
+    if (R_SUCCEEDED(rc)) {
+        IpcParsedCommand r;
+        ipcParse(&r);
+
+        struct {
+            u64 magic;
+            u64 result;
+        } *resp = r.Raw;
+
+        rc = resp->result;
+    }
+
+    return rc;
+}
+
+Result setsysGetSettingsItemValueSize(const char *name, const char *item_key, u64 *size_out) {
+    char send_name[SET_MAX_NAME_SIZE];
+    char send_item_key[SET_MAX_NAME_SIZE];
+    
+    memset(send_name, 0, SET_MAX_NAME_SIZE);
+    memset(send_item_key, 0, SET_MAX_NAME_SIZE);
+    strncpy(send_name, name, SET_MAX_NAME_SIZE-1);
+    strncpy(send_item_key, item_key, SET_MAX_NAME_SIZE-1);
+    
+    IpcCommand c;
+    ipcInitialize(&c);
+    ipcAddSendStatic(&c, send_name, SET_MAX_NAME_SIZE, 0);
+    ipcAddSendStatic(&c, send_item_key, SET_MAX_NAME_SIZE, 0);
+
+    struct {
+        u64 magic;
+        u64 cmd_id;
+    } *raw;
+
+    raw = ipcPrepareHeader(&c, sizeof(*raw));
+
+    raw->magic = SFCI_MAGIC;
+    raw->cmd_id = 37;
+
+    Result rc = serviceIpcDispatch(&g_setsysSrv);
+
+    if (R_SUCCEEDED(rc)) {
+        IpcParsedCommand r;
+        ipcParse(&r);
+
+        struct {
+            u64 magic;
+            u64 result;
+            u64 size;
+        } *resp = r.Raw;
+
+        rc = resp->result;
+
+        if (R_SUCCEEDED(rc) && size_out) *size_out = resp->size;
+    }
+
+    return rc;
+}
+
+Result setsysGetSerialNumber(char *serial) {
+    IpcCommand c;
+    ipcInitialize(&c);
+
+    if (serial) memset(serial, 0, 0x19);
+
+    struct {
+        u64 magic;
+        u64 cmd_id;
+    } *raw;
+
+    raw = ipcPrepareHeader(&c, sizeof(*raw));
+
+    raw->magic = SFCI_MAGIC;
+    raw->cmd_id = 68;
+
+    Result rc = serviceIpcDispatch(&g_setsysSrv);
+
+    if (R_SUCCEEDED(rc)) {
+        IpcParsedCommand r;
+        ipcParse(&r);
+
+        struct {
+            u64 magic;
+            u64 result;
+            char serial[0x18];
+        } *resp = r.Raw;
+
+        rc = resp->result;
+
+        if (R_SUCCEEDED(rc) && serial)
+        	memcpy(serial, resp->serial, 0x18);
+    }
+
+    return rc;
+}
+
+Result setsysGetFlag(SetSysFlag flag, bool *out) {
+    IpcCommand c;
+    ipcInitialize(&c);
+
+    struct {
+        u64 magic;
+        u64 cmd_id;
+    } *raw;
+
+    raw = ipcPrepareHeader(&c, sizeof(*raw));
+
+    raw->magic = SFCI_MAGIC;
+    raw->cmd_id = flag;
+
+    Result rc = serviceIpcDispatch(&g_setsysSrv);
+
+    if (R_SUCCEEDED(rc)) {
+        IpcParsedCommand r;
+        ipcParse(&r);
+
+        struct {
+            u64 magic;
+            u64 result;
+            u8 flag;
+        } *resp = r.Raw;
+
+        *out = resp->flag;
+        rc = resp->result;
+    }
+
+    return rc;
+}
+
+Result setsysSetFlag(SetSysFlag flag, bool enable) {
+    IpcCommand c;
+    ipcInitialize(&c);
+
+    struct {
+        u64 magic;
+        u64 cmd_id;
+        u8 flag;
+    } *raw;
+
+    raw = ipcPrepareHeader(&c, sizeof(*raw));
+
+    raw->magic = SFCI_MAGIC;
+    raw->cmd_id = flag + 1;
+    raw->flag = enable;
+
+    Result rc = serviceIpcDispatch(&g_setsysSrv);
+
+    if (R_SUCCEEDED(rc)) {
+        IpcParsedCommand r;
+        ipcParse(&r);
+
+        struct {
+            u64 magic;
+            u64 result;
+            u8 flag;
+        } *resp = r.Raw;
+
+        rc = resp->result;
+    }
+
+    return rc;
+}
+
+static Result _setsysGetFirmwareVersionImpl(SetSysFirmwareVersion *out, u32 cmd_id) {
+    IpcCommand c;
+    ipcInitialize(&c);
+    ipcAddRecvStatic(&c, out, sizeof(*out), 0);
+    
+    struct {
+        u64 magic;
+        u64 cmd_id;
+    } *raw;
+
+    raw = serviceIpcPrepareHeader(&g_setsysSrv, &c, sizeof(*raw));
+
+    raw->magic = SFCI_MAGIC;
+    raw->cmd_id = cmd_id;
+
+    Result rc = serviceIpcDispatch(&g_setsysSrv);
+
+    if (R_SUCCEEDED(rc)) {
+        IpcParsedCommand r;
+        struct {
+            u64 magic;
+            u64 result;
+        } *resp;
+        
+        serviceIpcParse(&g_setsysSrv, &r, sizeof(*resp));
+        resp = r.Raw;
+
+        rc = resp->result;
+    }
+
+    return rc;
+
+}
+
+Result setsysGetFirmwareVersion(SetSysFirmwareVersion *out) {
+    /* GetFirmwareVersion2 does exactly what GetFirmwareVersion does, except it doesn't zero the revision field. */
+    if (hosversionAtLeast(3,0,0)) {
+        return _setsysGetFirmwareVersionImpl(out, 4);
+    } else {
+        return _setsysGetFirmwareVersionImpl(out, 3);
+    }
+}
+
+Result setsysBindFatalDirtyFlagEvent(Event *out) {
+    IpcCommand c;
+    ipcInitialize(&c);
+
+    struct {
+        u64 magic;
+        u64 cmd_id;
+    } *raw;
+
+    raw = ipcPrepareHeader(&c, sizeof(*raw));
+
+    raw->magic = SFCI_MAGIC;
+    raw->cmd_id = 93;
+
+    Result rc = serviceIpcDispatch(&g_setsysSrv);
+
+    if (R_SUCCEEDED(rc)) {
+        IpcParsedCommand r;
+        ipcParse(&r);
+
+        struct {
+            u64 magic;
+            u64 result;
+        } *resp = r.Raw;
+
+        rc = resp->result;
+
+        if (R_SUCCEEDED(rc)) {
+            eventLoadRemote(out, r.Handles[0], false);
+        }
+    }
+
+    return rc;
+}
+
+Result setsysGetFatalDirtyFlags(u64 *flags_0, u64 *flags_1) {
+    IpcCommand c;
+    ipcInitialize(&c);
+
+    struct {
+        u64 magic;
+        u64 cmd_id;
+    } *raw;
+
+    raw = ipcPrepareHeader(&c, sizeof(*raw));
+
+    raw->magic = SFCI_MAGIC;
+    raw->cmd_id = 94;
+
+    Result rc = serviceIpcDispatch(&g_setsysSrv);
+
+    if (R_SUCCEEDED(rc)) {
+        IpcParsedCommand r;
+        ipcParse(&r);
+
+        struct {
+            u64 magic;
+            u64 result;
+            u64 flags_0;
+            u64 flags_1;
+        } *resp = r.Raw;
+
+        rc = resp->result;
+
+        if (R_SUCCEEDED(rc)) {
+            *flags_0 = resp->flags_0;
+            *flags_1 = resp->flags_1;
+        }
+    }
+
+    return rc;
 }

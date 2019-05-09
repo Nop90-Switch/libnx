@@ -14,8 +14,10 @@ Result jitCreate(Jit* j, size_t size)
     JitType type;
 
     // Use new jit primitive introduced in 4.0.0, if available.
-    if (kernelAbove400() && envIsSyscallHinted(0x4B) && envIsSyscallHinted(0x4C)) {
-        type = JitType_JitMemory;
+    // Not usable with 5.0.0+ since svcMapJitMemory doesn't allow using that SVC under the same process which owns that object.
+    if (kernelAbove400() && envIsSyscallHinted(0x4B) && envIsSyscallHinted(0x4C)
+        && (!kernelAbove500() || detectJitKernelPatch())) {
+	type = JitType_JitMemory;
     }
     // Fall back to MapProcessCodeMemory if available.
     else if (envIsSyscallHinted(0x73) && envIsSyscallHinted(0x77) && envIsSyscallHinted(0x78)
@@ -29,7 +31,7 @@ Result jitCreate(Jit* j, size_t size)
 
     size = (size + 0xFFF) &~ 0xFFF;
 
-    void* src_addr = memalign(size, 0x1000);
+    void* src_addr = memalign(0x1000, size);
 
     if (src_addr == NULL)
         return MAKERESULT(Module_Libnx, LibnxError_OutOfMemory);
@@ -39,6 +41,7 @@ Result jitCreate(Jit* j, size_t size)
     j->src_addr = src_addr;
     j->rx_addr = virtmemReserve(j->size);
     j->handle = INVALID_HANDLE;
+    j->is_executable = 0;
 
     Result rc = 0;
 
@@ -51,16 +54,16 @@ Result jitCreate(Jit* j, size_t size)
     case JitType_JitMemory:
         j->rw_addr = virtmemReserve(j->size);
 
-        rc = svcCreateJitMemory(&j->handle, j->src_addr, j->size);
+        rc = svcCreateCodeMemory(&j->handle, j->src_addr, j->size);
         if (R_SUCCEEDED(rc))
         {
-            rc = svcMapJitMemory(j->handle, JitMapOperation_MapOwner, j->rw_addr, j->size, Perm_Rw);
+            rc = svcControlCodeMemory(j->handle, CodeMapOperation_MapOwner, j->rw_addr, j->size, Perm_Rw);
             if (R_SUCCEEDED(rc))
             {
-                rc = svcMapJitMemory(j->handle, JitMapOperation_MapSlave, j->rx_addr, j->size, Perm_Rx);
+                rc = svcControlCodeMemory(j->handle, CodeMapOperation_MapSlave, j->rx_addr, j->size, Perm_Rx);
 
                 if (R_FAILED(rc)) {
-                    svcMapJitMemory(j->handle, JitMapOperation_UnmapOwner, j->rw_addr, j->size, 0);
+                    svcControlCodeMemory(j->handle, CodeMapOperation_UnmapOwner, j->rw_addr, j->size, 0);
                 }
             }
 
@@ -93,13 +96,15 @@ Result jitTransitionToWritable(Jit* j)
 
     switch (j->type) {
     case JitType_CodeMemory:
-        rc = svcUnmapProcessCodeMemory(envGetOwnProcessHandle(), (u64) j->rx_addr, (u64) j->src_addr, j->size);
+        if (j->is_executable) rc = svcUnmapProcessCodeMemory(envGetOwnProcessHandle(), (u64) j->rx_addr, (u64) j->src_addr, j->size);
         break;
 
     case JitType_JitMemory:
         // No need to do anything.
         break;
     }
+
+    if (R_SUCCEEDED(rc)) j->is_executable = 0;
 
     return rc;
 }
@@ -110,13 +115,15 @@ Result jitTransitionToExecutable(Jit* j)
 
     switch (j->type) {
     case JitType_CodeMemory:
-        rc = svcMapProcessCodeMemory(envGetOwnProcessHandle(), (u64) j->rx_addr, (u64) j->src_addr, j->size);
+        if (!j->is_executable) {
+            rc = svcMapProcessCodeMemory(envGetOwnProcessHandle(), (u64) j->rx_addr, (u64) j->src_addr, j->size);
 
-        if (R_SUCCEEDED(rc)) {
-            rc = svcSetProcessMemoryPermission(envGetOwnProcessHandle(), (u64) j->rx_addr, j->size, Perm_Rx);
+            if (R_SUCCEEDED(rc)) {
+                rc = svcSetProcessMemoryPermission(envGetOwnProcessHandle(), (u64) j->rx_addr, j->size, Perm_Rx);
 
-            if (R_FAILED(rc)) {
-                jitTransitionToWritable(j);
+                if (R_FAILED(rc)) {
+                    jitTransitionToWritable(j);
+                }
             }
         }
         break;
@@ -126,6 +133,8 @@ Result jitTransitionToExecutable(Jit* j)
         armICacheInvalidate(j->rx_addr, j->size);
         break;
     }
+
+    if (R_SUCCEEDED(rc)) j->is_executable = 1;
 
     return rc;
 }
@@ -145,15 +154,15 @@ Result jitClose(Jit* j)
         break;
 
     case JitType_JitMemory:
-        rc = svcMapJitMemory(j->handle, JitMapOperation_UnmapOwner, j->rw_addr, j->size, 0);
+        rc = svcControlCodeMemory(j->handle, CodeMapOperation_UnmapOwner, j->rw_addr, j->size, 0);
 
         if (R_SUCCEEDED(rc)) {
             virtmemFree(j->rw_addr, j->size);
 
-            rc = svcMapJitMemory(j->handle, JitMapOperation_UnmapSlave, j->rx_addr, j->size, 0);
+            rc = svcControlCodeMemory(j->handle, CodeMapOperation_UnmapSlave, j->rx_addr, j->size, 0);
 
             if (R_SUCCEEDED(rc)) {
-                virtmemFree(j->rw_addr, j->size);
+                virtmemFree(j->rx_addr, j->size);
                 svcCloseHandle(j->handle);
             }
         }

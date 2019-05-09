@@ -1,11 +1,13 @@
 // Copyright 2017 plutoo
 #include "types.h"
 #include "result.h"
-#include "ipc.h"
+#include "arm/atomics.h"
+#include "kernel/ipc.h"
 #include "services/fatal.h"
 #include "services/sm.h"
 
 static Handle g_smHandle = INVALID_HANDLE;
+static u64 g_refCnt;
 
 #define MAX_OVERRIDES 32
 
@@ -48,12 +50,18 @@ bool smHasInitialized(void) {
 
 Result smInitialize(void)
 {
+    atomicIncrement64(&g_refCnt);
+
     if (smHasInitialized())
         return 0;
 
     Result rc = svcConnectToNamedPort(&g_smHandle, "sm:");
-    Handle tmp;
+    while (R_VALUE(rc) == KERNELRESULT(NotFound)) {
+        svcSleepThread(50000000ul);
+        rc = svcConnectToNamedPort(&g_smHandle, "sm:");
+    }
 
+    Handle tmp;
     if (R_SUCCEEDED(rc) && smGetServiceOriginal(&tmp, smEncodeName("")) == 0x415) {
         IpcCommand c;
         ipcInitialize(&c);
@@ -93,9 +101,14 @@ Result smInitialize(void)
     return rc;
 }
 
-void smExit(void) {
-    svcCloseHandle(g_smHandle);
-    g_smHandle = INVALID_HANDLE;
+void smExit(void)
+{
+    if (atomicDecrement64(&g_refCnt) == 0)
+    {
+        ipcCloseSession(g_smHandle);
+        svcCloseHandle(g_smHandle);
+        g_smHandle = INVALID_HANDLE;
+    }
 }
 
 u64 smEncodeName(const char* name)

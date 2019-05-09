@@ -1,64 +1,80 @@
 #include <string.h>
 #include "types.h"
 #include "result.h"
-#include "ipc.h"
+#include "arm/atomics.h"
+#include "kernel/ipc.h"
+#include "kernel/tmem.h"
 #include "services/applet.h"
-#include "gfx/ioctl.h"
+#include "nvidia/ioctl.h"
 #include "services/nv.h"
 #include "services/sm.h"
-#include "kernel/tmem.h"
+
+__attribute__((weak)) u32 __nx_nv_transfermem_size = 0x800000;
 
 static Service g_nvSrv;
+static Service g_nvSrvClone;
+static u64 g_refCnt;
+
 static size_t g_nvIpcBufferSize = 0;
-static u32 g_nvServiceType = -1;
 static TransferMemory g_nvTransfermem;
 
 static Result _nvInitialize(Handle proc, Handle sharedmem, u32 transfermem_size);
 static Result _nvSetClientPID(u64 AppletResourceUserId);
 
-Result nvInitialize(nvServiceType servicetype, size_t transfermem_size)
+Result nvInitialize(void)
 {
-    if(g_nvServiceType!=-1)
-        return MAKERESULT(Module_Libnx, LibnxError_AlreadyInitialized);
+    atomicIncrement64(&g_refCnt);
+
+    if (serviceIsActive(&g_nvSrv))
+        return 0;
 
     Result rc = 0;
     u64 AppletResourceUserId = 0;
 
-    if (servicetype==NVSERVTYPE_Default || servicetype==NVSERVTYPE_Application) {
-        rc = smGetService(&g_nvSrv, "nvdrv");
-        g_nvServiceType = 0;
-    }
-
-    if ((servicetype==NVSERVTYPE_Default && R_FAILED(rc)) || servicetype==NVSERVTYPE_Applet) {
-        rc = smGetService(&g_nvSrv, "nvdrv:a");
-        g_nvServiceType = 1;
-    }
-
-    if ((servicetype==NVSERVTYPE_Default && R_FAILED(rc)) || servicetype==NVSERVTYPE_Sysmodule)
-    {
+    switch (appletGetAppletType()) {
+    case AppletType_None:
         rc = smGetService(&g_nvSrv, "nvdrv:s");
-        g_nvServiceType = 2;
-    }
+        break;
 
-    if ((servicetype==NVSERVTYPE_Default && R_FAILED(rc)) || servicetype==NVSERVTYPE_T)
-    {
-        rc = smGetService(&g_nvSrv, "nvdrv:t");
-        g_nvServiceType = 3;
+    case AppletType_Default:
+    case AppletType_Application:
+    case AppletType_SystemApplication:
+    default:
+        rc = smGetService(&g_nvSrv, "nvdrv");
+        break;
+
+    case AppletType_SystemApplet:
+    case AppletType_LibraryApplet:
+    case AppletType_OverlayApplet:
+        rc = smGetService(&g_nvSrv, "nvdrv:a");
+        break;
     }
 
     if (R_SUCCEEDED(rc)) {
         g_nvIpcBufferSize = 0;
         rc = ipcQueryPointerBufferSize(g_nvSrv.handle, &g_nvIpcBufferSize);
 
-        if (R_SUCCEEDED(rc)) rc = tmemCreate(&g_nvTransfermem, transfermem_size, Perm_None);
+        if (R_SUCCEEDED(rc))
+            rc = tmemCreate(&g_nvTransfermem, __nx_nv_transfermem_size, Perm_None);
 
-        if (R_SUCCEEDED(rc)) rc = _nvInitialize(CUR_PROCESS_HANDLE, g_nvTransfermem.handle, transfermem_size);
+        if (R_SUCCEEDED(rc))
+            rc = _nvInitialize(CUR_PROCESS_HANDLE, g_nvTransfermem.handle, __nx_nv_transfermem_size);
 
-        //Officially ipc control DuplicateSessionEx would be used here.
+        // Clone the session handle - the cloned session is used to execute certain commands in parallel
+        Handle nv_clone = INVALID_HANDLE;
+        if (R_SUCCEEDED(rc))
+            rc = ipcCloneSession(g_nvSrv.handle, 1, &nv_clone);
 
-        if (R_SUCCEEDED(rc)) rc = appletGetAppletResourceUserId(&AppletResourceUserId);//TODO: How do sysmodules handle this?
+        if (R_SUCCEEDED(rc))
+            serviceCreate(&g_nvSrvClone, nv_clone);
 
-        if (R_SUCCEEDED(rc)) rc = _nvSetClientPID(AppletResourceUserId);
+        if (R_SUCCEEDED(rc))
+        {
+            // Send aruid if available (non-fatal condition if get-aruid fails)
+            Result aruid_rc = appletGetAppletResourceUserId(&AppletResourceUserId);
+            if (R_SUCCEEDED(aruid_rc))
+                rc = _nvSetClientPID(AppletResourceUserId);
+        }
     }
 
     if (R_FAILED(rc)) {
@@ -70,13 +86,11 @@ Result nvInitialize(nvServiceType servicetype, size_t transfermem_size)
 
 void nvExit(void)
 {
-    if(g_nvServiceType == -1)
-        return;
-
-    g_nvServiceType = -1;
-
-    serviceClose(&g_nvSrv);
-    tmemClose(&g_nvTransfermem);
+    if (atomicDecrement64(&g_refCnt) == 0) {
+        serviceClose(&g_nvSrvClone);
+        serviceClose(&g_nvSrv);
+        tmemClose(&g_nvTransfermem);
+    }
 }
 
 static Result _nvInitialize(Handle proc, Handle sharedmem, u32 transfermem_size) {
@@ -188,6 +202,19 @@ Result nvOpen(u32 *fd, const char *devicepath) {
     return rc;
 }
 
+// Get the appropriate session for the specified request (same logic as official sw)
+static inline Service* _nvGetSessionForRequest(u32 request)
+{
+    if (
+        (request & 0xC000FFFF) == 0xC0004808 || // NVGPU_IOCTL_CHANNEL_SUBMIT_GPFIFO
+        request == 0xC018481B ||                // NVGPU_IOCTL_CHANNEL_KICKOFF_PB
+        request == 0xC004001C ||                // NVHOST_IOCTL_CTRL_EVENT_SIGNAL
+        request == 0xC010001E                   // NVHOST_IOCTL_CTRL_EVENT_WAIT_ASYNC
+        )
+        return &g_nvSrvClone;
+    return &g_nvSrv;
+}
+
 Result nvIoctl(u32 fd, u32 request, void* argp) {
     IpcCommand c;
     ipcInitialize(&c);
@@ -215,29 +242,8 @@ Result nvIoctl(u32 fd, u32 request, void* argp) {
         buf_recv_size = bufsize;
     }
 
-    void* bufs_send[2] = {buf_send, buf_send};
-    void* bufs_recv[2] = {buf_recv, buf_recv};
-    size_t bufs_send_size[2] = {buf_send_size, buf_send_size};
-    size_t bufs_recv_size[2] = {buf_recv_size, buf_recv_size};
-
-    if(g_nvIpcBufferSize!=0 && bufsize <= g_nvIpcBufferSize) {
-        bufs_send[0] = NULL;
-        bufs_send_size[0] = 0;
-        bufs_recv[0] = NULL;
-        bufs_recv_size[0] = 0;
-    }
-    else {
-        bufs_send[1] = NULL;
-        bufs_send_size[1] = 0;
-        bufs_recv[1] = NULL;
-        bufs_recv_size[1] = 0;
-    }
-
-    ipcAddSendBuffer(&c, bufs_send[0], bufs_send_size[0], 0);
-    ipcAddRecvBuffer(&c, bufs_recv[0], bufs_recv_size[0], 0);
-
-    ipcAddSendStatic(&c, bufs_send[1], bufs_send_size[1], 0);
-    ipcAddRecvStatic(&c, bufs_recv[1], bufs_recv_size[1], 0);
+    ipcAddSendSmart(&c, g_nvIpcBufferSize, buf_send, buf_send_size, 0);
+    ipcAddRecvSmart(&c, g_nvIpcBufferSize, buf_recv, buf_recv_size, 0);
 
     raw = ipcPrepareHeader(&c, sizeof(*raw));
     raw->magic = SFCI_MAGIC;
@@ -245,7 +251,65 @@ Result nvIoctl(u32 fd, u32 request, void* argp) {
     raw->fd = fd;
     raw->request = request;
 
-    Result rc = serviceIpcDispatch(&g_nvSrv);
+    Result rc = serviceIpcDispatch(_nvGetSessionForRequest(request));
+
+    if (R_SUCCEEDED(rc)) {
+        IpcParsedCommand r;
+        ipcParse(&r);
+
+        struct {
+            u64 magic;
+            u64 result;
+            u32 error;
+        } *resp = r.Raw;
+
+        rc = resp->result;
+
+        if (R_SUCCEEDED(rc))
+            rc = nvConvertError(resp->error);
+    }
+
+    return rc;
+}
+
+Result nvIoctl2(u32 fd, u32 request, void* argp, const void* inbuf, size_t inbuf_size) {
+    IpcCommand c;
+    ipcInitialize(&c);
+
+    struct {
+        u64 magic;
+        u64 cmd_id;
+        u32 fd;
+        u32 request;
+    } *raw;
+
+    size_t bufsize = _NV_IOC_SIZE(request);
+    u32 dir = _NV_IOC_DIR(request);
+
+    void* buf_send = NULL, *buf_recv = NULL;
+    size_t buf_send_size = 0, buf_recv_size = 0;
+
+    if(dir & _NV_IOC_WRITE) {
+        buf_send = argp;
+        buf_send_size = bufsize;
+    }
+
+    if(dir & _NV_IOC_READ) {
+        buf_recv = argp;
+        buf_recv_size = bufsize;
+    }
+
+    ipcAddSendSmart(&c, g_nvIpcBufferSize, buf_send, buf_send_size, 0);
+    ipcAddSendSmart(&c, g_nvIpcBufferSize, inbuf, inbuf_size, 1);
+    ipcAddRecvSmart(&c, g_nvIpcBufferSize, buf_recv, buf_recv_size, 0);
+
+    raw = ipcPrepareHeader(&c, sizeof(*raw));
+    raw->magic = SFCI_MAGIC;
+    raw->cmd_id = 11;
+    raw->fd = fd;
+    raw->request = request;
+
+    Result rc = serviceIpcDispatch(_nvGetSessionForRequest(request));
 
     if (R_SUCCEEDED(rc)) {
         IpcParsedCommand r;
@@ -302,7 +366,7 @@ Result nvClose(u32 fd) {
     return rc;
 }
 
-Result nvQueryEvent(u32 fd, u32 event_id, Handle *handle_out) {
+Result nvQueryEvent(u32 fd, u32 event_id, Event *event_out) {
     IpcCommand c;
     ipcInitialize(&c);
 
@@ -337,7 +401,7 @@ Result nvQueryEvent(u32 fd, u32 event_id, Handle *handle_out) {
             rc = nvConvertError(resp->error);
 
         if (R_SUCCEEDED(rc))
-            *handle_out = r.Handles[0];
+            eventLoadRemote(event_out, r.Handles[0], true);
     }
 
     return rc;

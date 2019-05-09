@@ -1,25 +1,26 @@
 #include "types.h"
 #include "result.h"
-#include "ipc.h"
+#include "arm/atomics.h"
+#include "kernel/ipc.h"
 #include "services/apm.h"
 #include "services/sm.h"
 
 static Service g_apmSrv;
 static Service g_apmISession;
+static u64 g_refCnt;
 
 static Result _apmGetSession(Service* srv, Service* srv_out, u64 cmd_id);
 
 Result apmInitialize(void)
 {
+    atomicIncrement64(&g_refCnt);
+
     if (serviceIsActive(&g_apmSrv))
-        return MAKERESULT(Module_Libnx, LibnxError_AlreadyInitialized);
+        return 0;
 
     Result rc = 0;
 
-    rc = smGetService(&g_apmSrv, "apm:p");
-
-    if (R_FAILED(rc))
-        rc = smGetService(&g_apmSrv, "apm");
+    rc = smGetService(&g_apmSrv, "apm");
 
     // OpenSession.
     // Official sw doesn't open this until using commands which need it, when it wasn't already opened.
@@ -34,8 +35,10 @@ Result apmInitialize(void)
 
 void apmExit(void)
 {
-    serviceClose(&g_apmISession);
-    serviceClose(&g_apmSrv);
+    if (atomicDecrement64(&g_refCnt) == 0) {
+        serviceClose(&g_apmISession);
+        serviceClose(&g_apmSrv);
+    }
 }
 
 static Result _apmGetSession(Service* srv, Service* srv_out, u64 cmd_id) {

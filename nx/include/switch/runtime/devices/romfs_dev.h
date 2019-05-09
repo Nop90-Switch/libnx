@@ -11,8 +11,6 @@
 #include "../../types.h"
 #include "../../services/fs.h"
 
-/// WARNING: This is not ready to be used.
-
 /// RomFS header.
 typedef struct
 {
@@ -52,49 +50,60 @@ typedef struct
     uint8_t name[];   ///< Name. (UTF-8)
 } romfs_file;
 
-struct romfs_mount;
-
 /**
  * @brief Mounts the Application's RomFS.
- * @param mount Output mount handle
+ * @param name Device mount name.
  */
-Result romfsMount(struct romfs_mount **mount);
+Result romfsMount(const char *name);
 static inline Result romfsInit(void)
 {
-    return romfsMount(NULL);
+    return romfsMount("romfs");
 }
 
 /**
  * @brief Mounts RomFS from an open file.
  * @param file FsFile of the RomFS image.
  * @param offset Offset of the RomFS within the file.
- * @param mount Output mount handle
+ * @param name Device mount name.
  */
-Result romfsMountFromFile(FsFile file, u64 offset, struct romfs_mount **mount);
+Result romfsMountFromFile(FsFile file, u64 offset, const char *name);
 static inline Result romfsInitFromFile(FsFile file, u64 offset)
 {
-    return romfsMountFromFile(file, offset, NULL);
+    return romfsMountFromFile(file, offset, "romfs");
 }
 
 /**
  * @brief Mounts RomFS from an open storage.
  * @param storage FsStorage of the RomFS image.
  * @param offset Offset of the RomFS within the storage.
- * @param mount Output mount handle
+ * @param name Device mount name.
  */
-Result romfsMountFromStorage(FsStorage storage, u64 offset, struct romfs_mount **mount);
+Result romfsMountFromStorage(FsStorage storage, u64 offset, const char *name);
 static inline Result romfsInitFromStorage(FsStorage storage, u64 offset)
 {
-    return romfsMountFromStorage(storage, offset, NULL);
+    return romfsMountFromStorage(storage, offset, "romfs");
 }
 
-/// Bind the RomFS mount
-Result romfsBind(struct romfs_mount *mount);
+/**
+ * @brief Mounts RomFS from a file path in a mounted fsdev device.
+ * @param path File path.
+ * @param offset Offset of the RomFS within the file.
+ * @param name Device mount name.
+ */
+Result romfsMountFromFsdev(const char *path, u64 offset, const char *name);
+
+/**
+ * @brief Mounts RomFS from a system data archive.
+ * @param dataId Title ID of system data archive to mount.
+ * @param storageId Storage ID to mount from.
+ * @param name Device mount name.
+ */
+Result romfsMountFromDataArchive(u64 dataId, FsStorageId storageId, const char *name);
 
 /// Unmounts the RomFS device.
-Result romfsUnmount(struct romfs_mount *mount);
+Result romfsUnmount(const char *name);
 static inline Result romfsExit(void)
 {
-    return romfsUnmount(NULL);
+    return romfsUnmount("romfs");
 }
 

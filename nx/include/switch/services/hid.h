@@ -6,8 +6,8 @@
  * @copyright libnx Authors
  */
 #pragma once
-#include <assert.h>
 #include "../types.h"
+#include "../kernel/event.h"
 #include "../services/sm.h"
 
 // Begin enums and output structs
@@ -214,6 +214,7 @@ typedef enum
     KBD_MEDIA_CALC = 0xfb
 } HidKeyboardScancode;
 
+/// HID controller type
 typedef enum
 {
     TYPE_PROCONTROLLER = BIT(0),
@@ -225,13 +226,13 @@ typedef enum
 
 typedef enum
 {
-    LAYOUT_PROCONTROLLER   = 0, // Pro Controller or Hid gamepad
-    LAYOUT_HANDHELD        = 1, // Two Joy-Con docked to rails
-    LAYOUT_SINGLE          = 2, // Horizontal single Joy-Con or pair of Joy-Con, adjusted for orientation
-    LAYOUT_LEFT            = 3, // Only raw left Joy-Con state, no orientation adjustment
-    LAYOUT_RIGHT           = 4, // Only raw right Joy-Con state, no orientation adjustment
-    LAYOUT_DEFAULT_DIGITAL = 5, // Same as next, but sticks have 8-direction values only
-    LAYOUT_DEFAULT         = 6, // Safe default, single Joy-Con have buttons/sticks rotated for orientation
+    LAYOUT_PROCONTROLLER   = 0, ///< Pro Controller or Hid gamepad.
+    LAYOUT_HANDHELD        = 1, ///< Two Joy-Con docked to rails.
+    LAYOUT_SINGLE          = 2, ///< Single Joy-Con or pair of Joy-Con, only available in dual-mode with no orientation adjustment.
+    LAYOUT_LEFT            = 3, ///< Only single-mode raw left Joy-Con state, no orientation adjustment.
+    LAYOUT_RIGHT           = 4, ///< Only single-mode raw right Joy-Con state, no orientation adjustment.
+    LAYOUT_DEFAULT_DIGITAL = 5, ///< Same as next, but sticks have 8-direction values only.
+    LAYOUT_DEFAULT         = 6, ///< Safe default. Single-mode and ::HidJoyHoldType_Horizontal: Joy-Con have buttons/sticks rotated for orientation, where physical Z(L/R) are unavailable and S(L/R) are mapped to L/R (with physical L/R unavailable).
 } HidControllerLayoutType;
 
 typedef enum
@@ -265,11 +266,13 @@ typedef enum
     KEY_RSTICK_UP    = BIT(21),      ///< Right Stick Up
     KEY_RSTICK_RIGHT = BIT(22),      ///< Right Stick Right
     KEY_RSTICK_DOWN  = BIT(23),      ///< Right Stick Down
-    KEY_SL           = BIT(24),      ///< SL
-    KEY_SR           = BIT(25),      ///< SR
+    KEY_SL_LEFT      = BIT(24),      ///< SL on Left Joy-Con
+    KEY_SR_LEFT      = BIT(25),      ///< SR on Left Joy-Con
+    KEY_SL_RIGHT     = BIT(26),      ///< SL on Right Joy-Con
+    KEY_SR_RIGHT     = BIT(27),      ///< SR on Right Joy-Con
 
     // Pseudo-key for at least one finger on the touch screen
-    KEY_TOUCH       = BIT(26),
+    KEY_TOUCH       = BIT(28),
 
     // Buttons by orientation (for single Joy-Con), also works with Joy-Con pairs, Pro Controller
     KEY_JOYCON_RIGHT = BIT(0),
@@ -278,10 +281,12 @@ typedef enum
     KEY_JOYCON_LEFT  = BIT(3),
 
     // Generic catch-all directions, also works for single Joy-Con
-    KEY_UP    = KEY_DUP    | KEY_LSTICK_UP    | KEY_RSTICK_UP,    ///< D-Pad Up or Sticks Up
-    KEY_DOWN  = KEY_DDOWN  | KEY_LSTICK_DOWN  | KEY_RSTICK_DOWN,  ///< D-Pad Down or Sticks Down
-    KEY_LEFT  = KEY_DLEFT  | KEY_LSTICK_LEFT  | KEY_RSTICK_LEFT,  ///< D-Pad Left or Sticks Left
-    KEY_RIGHT = KEY_DRIGHT | KEY_LSTICK_RIGHT | KEY_RSTICK_RIGHT, ///< D-Pad Right or Sticks Right
+    KEY_UP    = KEY_DUP     | KEY_LSTICK_UP    | KEY_RSTICK_UP,    ///< D-Pad Up or Sticks Up
+    KEY_DOWN  = KEY_DDOWN   | KEY_LSTICK_DOWN  | KEY_RSTICK_DOWN,  ///< D-Pad Down or Sticks Down
+    KEY_LEFT  = KEY_DLEFT   | KEY_LSTICK_LEFT  | KEY_RSTICK_LEFT,  ///< D-Pad Left or Sticks Left
+    KEY_RIGHT = KEY_DRIGHT  | KEY_LSTICK_RIGHT | KEY_RSTICK_RIGHT, ///< D-Pad Right or Sticks Right
+    KEY_SL    = KEY_SL_LEFT | KEY_SL_RIGHT,                        ///< SL on Left or Right Joy-Con
+    KEY_SR    = KEY_SR_LEFT | KEY_SR_RIGHT,                        ///< SR on Left or Right Joy-Con
 } HidControllerKeys;
 
 typedef enum
@@ -310,11 +315,18 @@ typedef enum
     CONTROLLER_PLAYER_8 = 7,
     CONTROLLER_HANDHELD = 8,
     CONTROLLER_UNKNOWN  = 9,
-    CONTROLLER_P1_AUTO = 10, /// Not an actual HID-sysmodule ID. Only for hidKeys*(). Automatically uses CONTROLLER_PLAYER_1 when connected, otherwise uses CONTROLLER_HANDHELD.
+    CONTROLLER_P1_AUTO = 10, ///< Not an actual HID-sysmodule ID. Only for hidKeys*()/hidJoystickRead()/hidSixAxisSensorValuesRead()/hidGetControllerType()/hidGetControllerColors()/hidIsControllerConnected(). Automatically uses CONTROLLER_PLAYER_1 when connected, otherwise uses CONTROLLER_HANDHELD.
 } HidControllerID;
+
+typedef enum
+{
+    HidJoyHoldType_Default    = 0, ///< Default / Joy-Con held vertically.
+    HidJoyHoldType_Horizontal = 1, ///< Joy-Con held horizontally with HID state orientation adjustment, see \ref HidControllerLayoutType.
+} HidJoyHoldType;
 
 typedef struct touchPosition
 {
+    u32 id;
     u32 px;
     u32 py;
     u32 dx;
@@ -330,13 +342,28 @@ typedef struct JoystickPosition
 
 typedef struct MousePosition
 {
-    u32 x;
-    u32 y;
-    u32 velocityX;
-    u32 velocityY;
-    u32 scrollVelocityX;
-    u32 scrollVelocityY;
+    s32 x;
+    s32 y;
+    s32 velocityX;
+    s32 velocityY;
+    s32 scrollVelocityX;
+    s32 scrollVelocityY;
 } MousePosition;
+
+typedef struct HidVector
+{
+    float x;
+    float y;
+    float z;
+} HidVector;
+
+typedef struct SixAxisSensorValues
+{
+    HidVector accelerometer;
+    HidVector gyroscope;
+    HidVector unk;
+    HidVector orientation[3];
+} SixAxisSensorValues;
 
 #define JOYSTICK_MAX (0x8000)
 #define JOYSTICK_MIN (-0x8000)
@@ -353,14 +380,12 @@ typedef struct HidTouchScreenHeader
     u64 maxEntryIndex;
     u64 timestamp;
 } HidTouchScreenHeader;
-static_assert(sizeof(HidTouchScreenHeader) == 0x28, "Hid touch screen header structure has incorrect size");
 
 typedef struct HidTouchScreenEntryHeader
 {
     u64 timestamp;
     u64 numTouches;
 } HidTouchScreenEntryHeader;
-static_assert(sizeof(HidTouchScreenEntryHeader) == 0x10, "Hid touch screen entry header structure has incorrect size");
 
 typedef struct HidTouchScreenEntryTouch
 {
@@ -374,7 +399,6 @@ typedef struct HidTouchScreenEntryTouch
     u32 angle;
     u32 padding_2;
 } HidTouchScreenEntryTouch;
-static_assert(sizeof(HidTouchScreenEntryTouch) == 0x28, "Hid touch screen touch structure has incorrect size");
 
 typedef struct HidTouchScreenEntry
 {
@@ -382,7 +406,6 @@ typedef struct HidTouchScreenEntry
     HidTouchScreenEntryTouch touches[16];
     u64 unk;
 } HidTouchScreenEntry;
-static_assert(sizeof(HidTouchScreenEntry) == 0x298, "Hid touch screen entry structure has incorrect size");
 
 typedef struct HidTouchScreen
 {
@@ -390,7 +413,6 @@ typedef struct HidTouchScreen
     HidTouchScreenEntry entries[17];
     u8 padding[0x3c0];
 } HidTouchScreen;
-static_assert(sizeof(HidTouchScreen) == 0x3000, "Hid touch screen structure has incorrect size");
 
 // End HidTouchScreen
 
@@ -403,7 +425,6 @@ typedef struct HidMouseHeader
     u64 latestEntry;
     u64 maxEntryIndex;
 } HidMouseHeader;
-static_assert(sizeof(HidMouseHeader) == 0x20, "Hid mouse header structure has incorrect size");
 
 typedef struct HidMouseEntry
 {
@@ -412,7 +433,6 @@ typedef struct HidMouseEntry
     MousePosition position;
     u64 buttons;
 } HidMouseEntry;
-static_assert(sizeof(HidMouseEntry) == 0x30, "Hid mouse entry structure has incorrect size");
 
 typedef struct HidMouse
 {
@@ -420,7 +440,6 @@ typedef struct HidMouse
     HidMouseEntry entries[17];
     u8 padding[0xB0];
 } HidMouse;
-static_assert(sizeof(HidMouse) == 0x400, "Hid mouse structure has incorrect size");
 
 // End HidMouse
 
@@ -433,7 +452,6 @@ typedef struct HidKeyboardHeader
     u64 latestEntry;
     u64 maxEntryIndex;
 } HidKeyboardHeader;
-static_assert(sizeof(HidKeyboardHeader) == 0x20, "Hid keyboard header structure has incorrect size");
 
 typedef struct HidKeyboardEntry
 {
@@ -442,7 +460,6 @@ typedef struct HidKeyboardEntry
     u64 modifier;
     u32 keys[8];
 } HidKeyboardEntry;
-static_assert(sizeof(HidKeyboardEntry) == 0x38, "Hid keyboard entry structure has incorrect size");
 
 typedef struct HidKeyboard
 {
@@ -450,7 +467,6 @@ typedef struct HidKeyboard
     HidKeyboardEntry entries[17];
     u8 padding[0x28];
 } HidKeyboard;
-static_assert(sizeof(HidKeyboard) == 0x400, "Hid keyboard structure has incorrect size");
 
 // End HidKeyboard
 
@@ -463,7 +479,6 @@ typedef struct HidControllerMAC
     u64 unk;
     u64 timestamp_2;
 } HidControllerMAC;
-static_assert(sizeof(HidControllerMAC) == 0x20, "Hid controller MAC structure has incorrect size");
 
 typedef struct HidControllerHeader
 {
@@ -476,9 +491,23 @@ typedef struct HidControllerHeader
     u32 leftColorBody;
     u32 leftColorButtons;
     u32 rightColorBody;
-    u32 rightColorbuttons;
+    u32 rightColorButtons;
 } HidControllerHeader;
-static_assert(sizeof(HidControllerHeader) == 0x28, "Hid controller header structure has incorrect size");
+
+/// Info struct extracted from HidControllerHeader.
+/// Color fields are zero when not set. This can happen even when the *Set fields are set to true.
+typedef struct HidControllerColors
+{
+    bool singleSet;         ///< Set to true when the below fields are valid.
+    u32 singleColorBody;    ///< RGBA Single Body Color
+    u32 singleColorButtons; ///< RGBA Single Buttons Color
+
+    bool splitSet;          ///< Set to true when the below fields are valid.
+    u32 leftColorBody;      ///< RGBA Left Body Color
+    u32 leftColorButtons;   ///< RGBA Left Buttons Color
+    u32 rightColorBody;     ///< RGBA Right Body Color
+    u32 rightColorButtons;  ///< RGBA Right Buttons Color
+} HidControllerColors;
 
 typedef struct HidControllerLayoutHeader
 {
@@ -487,7 +516,6 @@ typedef struct HidControllerLayoutHeader
     u64 latestEntry;
     u64 maxEntryIndex;
 } HidControllerLayoutHeader;
-static_assert(sizeof(HidControllerLayoutHeader) == 0x20, "Hid controller layout header structure has incorrect size");
 
 typedef struct HidControllerInputEntry
 {
@@ -497,25 +525,46 @@ typedef struct HidControllerInputEntry
     JoystickPosition joysticks[JOYSTICK_NUM_STICKS];
     u64 connectionState;
 } HidControllerInputEntry;
-static_assert(sizeof(HidControllerInputEntry) == 0x30, "Hid controller input entry structure has incorrect size");
 
 typedef struct HidControllerLayout
 {
     HidControllerLayoutHeader header;
     HidControllerInputEntry entries[17];
 } HidControllerLayout;
-static_assert(sizeof(HidControllerLayout) == 0x350, "Hid controller layout structure has incorrect size");
+
+typedef struct HidControllerSixAxisHeader
+{
+    u64 timestamp;
+    u64 numEntries;
+    u64 latestEntry;
+    u64 maxEntryIndex;
+} HidControllerSixAxisHeader;
+
+typedef struct HidControllerSixAxisEntry
+{
+    u64 timestamp;
+    u64 unk_1;
+    u64 timestamp_2;
+    SixAxisSensorValues values;
+    u64 unk_3;
+} HidControllerSixAxisEntry;
+
+typedef struct HidControllerSixAxisLayout
+{
+    HidControllerSixAxisHeader header;
+    HidControllerSixAxisEntry entries[17];
+} HidControllerSixAxisLayout;
 
 typedef struct HidController
 {
     HidControllerHeader header;
     HidControllerLayout layouts[7];
-    u8 unk_1[0x2A70];
+    HidControllerSixAxisLayout sixaxis[6];
+    u8 unk_1[0x40];
     HidControllerMAC macLeft;
     HidControllerMAC macRight;
     u8 unk_2[0xDF8];
 } HidController;
-static_assert(sizeof(HidController) == 0x5000, "Hid controller structure has incorrect size");
 
 // End HidController
 
@@ -537,8 +586,34 @@ typedef struct HidSharedMemory
     HidController controllers[10];
     u8 unkSection9[0x4600];
 } HidSharedMemory;
-static_assert(sizeof(HidSharedMemory) == 0x40000, "Hid Shared Memory structure has incorrect size");
 
+typedef struct HidVibrationDeviceInfo
+{
+    u32 unk_x0;
+    u32 unk_x4; ///< 0x1 for left-joycon, 0x2 for right-joycon.
+} HidVibrationDeviceInfo;
+
+typedef struct HidVibrationValue
+{
+    float amp_low;   ///< Low Band amplitude. 1.0f: Max amplitude.
+    float freq_low;  ///< Low Band frequency in Hz.
+    float amp_high;  ///< High Band amplitude. 1.0f: Max amplitude.
+    float freq_high; ///< High Band frequency in Hz.
+} HidVibrationValue;
+
+static inline u32 hidControllerIDToOfficial(HidControllerID id) {
+    if (id < CONTROLLER_HANDHELD) return id;
+    if (id == CONTROLLER_HANDHELD) return 0x20;
+    return 0x10;//For CONTROLLER_UNKNOWN and invalid values return this.
+}
+
+static inline HidControllerID hidControllerIDFromOfficial(u32 id) {
+    if (id < 8) return (HidControllerID)id;
+    if (id == 0x20) return CONTROLLER_HANDHELD;
+    return CONTROLLER_UNKNOWN;
+}
+
+/// Initializes hid, called automatically during app startup.
 Result hidInitialize(void);
 void hidExit(void);
 void hidReset(void);
@@ -548,6 +623,11 @@ void* hidGetSharedmemAddr(void);
 
 void hidSetControllerLayout(HidControllerID id, HidControllerLayoutType layoutType);
 HidControllerLayoutType hidGetControllerLayout(HidControllerID id);
+/// Gets the \ref HidControllerType for the specified controller.
+HidControllerType hidGetControllerType(HidControllerID id);
+void hidGetControllerColors(HidControllerID id, HidControllerColors *colors);
+bool hidIsControllerConnected(HidControllerID id);
+
 void hidScanInput(void);
 
 u64 hidKeysHeld(HidControllerID id);
@@ -558,6 +638,7 @@ u64 hidMouseButtonsHeld(void);
 u64 hidMouseButtonsDown(void);
 u64 hidMouseButtonsUp(void);
 void hidMouseRead(MousePosition *pos);
+u32 hidMouseMultiRead(MousePosition *entries, u32 num_entries);
 
 bool hidKeyboardModifierHeld(HidKeyboardModifier modifier);
 bool hidKeyboardModifierDown(HidKeyboardModifier modifier);
@@ -571,3 +652,90 @@ u32 hidTouchCount(void);
 void hidTouchRead(touchPosition *pos, u32 point_id);
 
 void hidJoystickRead(JoystickPosition *pos, HidControllerID id, HidControllerJoystick stick);
+u32 hidSixAxisSensorValuesRead(SixAxisSensorValues *values, HidControllerID id, u32 num_entries);
+
+/// This can be used to check what CONTROLLER_P1_AUTO uses.
+/// Returns 0 when CONTROLLER_PLAYER_1 is connected, otherwise returns 1 for handheld-mode.
+bool hidGetHandheldMode(void);
+
+/// This is automatically called with CONTROLLER_PLAYER_{1-8} and CONTROLLER_HANDHELD in \ref hidInitialize.
+/// count must be <=10. Each entry in buf must be CONTROLLER_PLAYER_{1-8} or CONTROLLER_HANDHELD.
+Result hidSetSupportedNpadIdType(HidControllerID *buf, size_t count);
+
+/// Sets which controller types are supported. This is automatically called with all types in \ref hidInitialize.
+Result hidSetSupportedNpadStyleSet(HidControllerType type);
+
+/// Gets an event with the specified autoclear for the input controller.
+/// The user *must* close the event when finished with it / before the app exits.
+/// This is signaled when the \ref hidGetControllerType output is updated for the controller.
+Result hidAcquireNpadStyleSetUpdateEventHandle(HidControllerID id, Event* event, bool autoclear);
+
+/// Sets the hold-type, see \ref HidJoyHoldType.
+Result hidSetNpadJoyHoldType(HidJoyHoldType type);
+
+/// Use this if you want to use a single joy-con as a dedicated CONTROLLER_PLAYER_*.
+/// When used, both joy-cons in a pair should be used with this (CONTROLLER_PLAYER_1 and CONTROLLER_PLAYER_2 for example).
+/// id must be CONTROLLER_PLAYER_*.
+Result hidSetNpadJoyAssignmentModeSingleByDefault(HidControllerID id);
+
+/// Use this if you want to use a pair of joy-cons as a single CONTROLLER_PLAYER_*. Only necessary if you want to use this mode in your application after \ref hidSetNpadJoyAssignmentModeSingleByDefault was used with this pair of joy-cons.
+/// Used automatically during app startup/exit for all controllers.
+/// When used, both joy-cons in a pair should be used with this (CONTROLLER_PLAYER_1 and CONTROLLER_PLAYER_2 for example).
+/// id must be CONTROLLER_PLAYER_*.
+Result hidSetNpadJoyAssignmentModeDual(HidControllerID id);
+
+/// Merge two single joy-cons into a dual-mode controller. Use this after \ref hidSetNpadJoyAssignmentModeDual, when \ref hidSetNpadJoyAssignmentModeSingleByDefault was previously used (this includes using this manually at application exit).
+/// To be successful, id0/id1 must correspond to controller types TYPE_JOYCON_LEFT/TYPE_JOYCON_RIGHT, or TYPE_JOYCON_RIGHT/TYPE_JOYCON_LEFT.
+/// If successful, the id of the resulting dual controller is set to id0.
+Result hidMergeSingleJoyAsDualJoy(HidControllerID id0, HidControllerID id1);
+
+Result hidInitializeVibrationDevices(u32 *VibrationDeviceHandles, size_t total_handles, HidControllerID id, HidControllerType type);
+
+/// Gets HidVibrationDeviceInfo for the specified VibrationDeviceHandle.
+Result hidGetVibrationDeviceInfo(u32 *VibrationDeviceHandle, HidVibrationDeviceInfo *VibrationDeviceInfo);
+
+/// Send the VibrationValue to the specified VibrationDeviceHandle.
+Result hidSendVibrationValue(u32 *VibrationDeviceHandle, HidVibrationValue *VibrationValue);
+
+/// Gets the current HidVibrationValue for the specified VibrationDeviceHandle.
+Result hidGetActualVibrationValue(u32 *VibrationDeviceHandle, HidVibrationValue *VibrationValue);
+
+/// Sets whether vibration is allowed, this also affects the config displayed by System Settings.
+Result hidPermitVibration(bool flag);
+
+/// Gets whether vibration is allowed.
+Result hidIsVibrationPermitted(bool *flag);
+
+/// Send VibrationValues[index] to VibrationDeviceHandles[index], where count is the number of entries in the VibrationDeviceHandles/VibrationValues arrays.
+Result hidSendVibrationValues(u32 *VibrationDeviceHandles, HidVibrationValue *VibrationValues, size_t count);
+
+/// Gets SixAxisSensorHandles. total_handles==2 can only be used with TYPE_JOYCON_PAIR.
+Result hidGetSixAxisSensorHandles(u32 *SixAxisSensorHandles, size_t total_handles, HidControllerID id, HidControllerType type);
+
+/// Starts the SixAxisSensor for the specified handle.
+Result hidStartSixAxisSensor(u32 SixAxisSensorHandle);
+
+/// Stops the SixAxisSensor for the specified handle.
+Result hidStopSixAxisSensor(u32 SixAxisSensorHandle);
+
+/// Starts the SevenSixAxisSensor. Only available on [5.0.0+].
+Result hidStartSevenSixAxisSensor(void);
+
+/// Stops the SevenSixAxisSensor. Only available on [5.0.0+].
+Result hidStopSevenSixAxisSensor(void);
+
+/// Initializes the SevenSixAxisSensor. Only available on [5.0.0+].
+Result hidInitializeSevenSixAxisSensor(void);
+
+/// Finalizes the SevenSixAxisSensor. Also used automatically by \ref hidExit. Only available on [5.0.0+].
+Result hidFinalizeSevenSixAxisSensor(void);
+
+/// Sets the SevenSixAxisSensor FusionStrength. Only available on [5.0.0+].
+Result hidSetSevenSixAxisSensorFusionStrength(float strength);
+
+/// Gets the SevenSixAxisSensor FusionStrength. Only available on [5.0.0+].
+Result hidGetSevenSixAxisSensorFusionStrength(float *strength);
+
+/// Resets the timestamp for the SevenSixAxisSensor. Only available on [6.0.0+].
+Result hidResetSevenSixAxisSensorTimestamp(void);
+

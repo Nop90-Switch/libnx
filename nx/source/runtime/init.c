@@ -1,11 +1,13 @@
 #include "types.h"
 #include "runtime/env.h"
+#include "runtime/hosversion.h"
 #include "services/sm.h"
 #include "services/fatal.h"
 #include "services/fs.h"
 #include "services/hid.h"
 #include "services/time.h"
 #include "services/applet.h"
+#include "services/set.h"
 #include "runtime/devices/fs_dev.h"
 
 void* __stack_top;
@@ -14,11 +16,23 @@ void NORETURN __nx_exit(Result rc, LoaderReturnFn retaddr);
 void virtmemSetup(void);
 void newlibSetup(void);
 void argvSetup(void);
+void __libnx_init_time(void);
 
 extern u32 __nx_applet_type;
 
 // Must be a multiple of 0x200000.
 __attribute__((weak)) size_t __nx_heap_size = 0;
+
+/// Override these with your own if you're using \ref__libnx_exception_handler. __nx_exception_stack is the stack-bottom. Update \ref __nx_exception_stack_size if you change this.
+__attribute__((weak)) alignas(16) u8 __nx_exception_stack[0x400];
+__attribute__((weak)) u64 __nx_exception_stack_size = sizeof(__nx_exception_stack);
+/// By default exception handling will be aborted when the current process is being debugged. Set this to non-zero to disable that.
+__attribute__((weak)) u32 __nx_exception_ignoredebug = 0;
+
+/// Override this with your own func to handle exceptions. See \ref __nx_exception_stack. See here: https://switchbrew.org/wiki/SVC#Exception_handling
+void __attribute__((weak)) __libnx_exception_handler(ThreadExceptionDump *ctx);
+
+ThreadExceptionDump __nx_exceptiondump;
 
 /*
   There are three ways of allocating heap:
@@ -83,6 +97,9 @@ void __attribute__((weak)) __libnx_initheap(void)
     fake_heap_end   = (char*)addr + size;
 }
 
+void __attribute__((weak)) __nx_win_init(void);
+void __attribute__((weak)) userAppInit(void);
+
 void __attribute__((weak)) __appInit(void)
 {
     Result rc;
@@ -91,6 +108,15 @@ void __attribute__((weak)) __appInit(void)
     rc = smInitialize();
     if (R_FAILED(rc))
         fatalSimple(MAKERESULT(Module_Libnx, LibnxError_InitFail_SM));
+
+    rc = setsysInitialize();
+    if (R_SUCCEEDED(rc)) {
+        SetSysFirmwareVersion fw;
+        rc = setsysGetFirmwareVersion(&fw);
+        if (R_SUCCEEDED(rc))
+            hosversionSet(MAKEHOSVERSION(fw.major, fw.minor, fw.micro));
+        setsysExit();
+    }
 
     rc = appletInitialize();
     if (R_FAILED(rc))
@@ -106,17 +132,28 @@ void __attribute__((weak)) __appInit(void)
     if (R_FAILED(rc))
         fatalSimple(MAKERESULT(Module_Libnx, LibnxError_InitFail_Time));
 
+    __libnx_init_time();
+
     rc = fsInitialize();
     if (R_FAILED(rc))
         fatalSimple(MAKERESULT(Module_Libnx, LibnxError_InitFail_FS));
 
-    fsdevInit();
+    fsdevMountSdmc();
+
+    if (&__nx_win_init) __nx_win_init();
+    if (&userAppInit) userAppInit();
 }
+
+void __attribute__((weak)) userAppExit(void);
+void __attribute__((weak)) __nx_win_exit(void);
 
 void __attribute__((weak)) __appExit(void)
 {
+    if (&userAppExit) userAppExit();
+    if (&__nx_win_exit) __nx_win_exit();
+
     // Cleanup default services.
-    fsdevExit();
+    fsdevUnmountAll();
     fsExit();
     timeExit();
     hidExit();
@@ -156,3 +193,4 @@ void __attribute__((weak)) NORETURN __libnx_exit(int rc)
 
     __nx_exit(0, envGetExitFuncPtr());
 }
+

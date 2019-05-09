@@ -1,10 +1,12 @@
 // Copyright 2017 plutoo
+#include <string.h>
 #include <malloc.h>
 #include "types.h"
 #include "result.h"
 #include "kernel/svc.h"
 #include "kernel/tmem.h"
 #include "kernel/virtmem.h"
+#include "services/fatal.h"
 
 Result tmemCreate(TransferMemory* t, size_t size, Permission perm)
 {
@@ -19,10 +21,37 @@ Result tmemCreate(TransferMemory* t, size_t size, Permission perm)
     if (t->src_addr == NULL) {
         rc = MAKERESULT(Module_Libnx, LibnxError_OutOfMemory);
     }
+    else {
+        memset(t->src_addr, 0, size);
+    }
 
     if (R_SUCCEEDED(rc)) {
         rc = svcCreateTransferMemory(&t->handle, t->src_addr, size, perm);
     }
+
+    if (R_FAILED(rc)) {
+        free(t->src_addr);
+        t->src_addr = NULL;
+    }
+
+    return rc;
+}
+
+Result tmemCreateFromMemory(TransferMemory* t, void* buf, size_t size, Permission perm)
+{
+    Result rc = 0;
+
+    if (buf == NULL || ((uintptr_t)buf & 0xFFF)) {
+        return MAKERESULT(Module_Libnx, LibnxError_BadInput);
+    }
+
+    t->handle = INVALID_HANDLE;
+    t->size = size;
+    t->perm = perm;
+    t->map_addr = NULL;
+    t->src_addr = NULL;
+
+    rc = svcCreateTransferMemory(&t->handle, buf, size, perm);
 
     return rc;
 }
@@ -54,7 +83,7 @@ Result tmemMap(TransferMemory* t)
         }
     }
     else {
-        rc = LibnxError_AlreadyMapped;
+        rc = MAKERESULT(Module_Libnx, LibnxError_AlreadyMapped);
     }
 
     return rc;

@@ -30,9 +30,14 @@ enum {
     EntryType_SyscallAvailableHint=6, ///< Provides syscall availability hints.
     EntryType_AppletType=7,           ///< Provides APT applet type.
     EntryType_AppletWorkaround=8,     ///< Indicates that APT is broken and should not be used.
-    EntryType_StdioSockets=9,         ///< Provides socket-based standard stream redirection information.
+    EntryType_Reserved9=9,            ///< Unused/reserved entry type, formerly used by StdioSockets.
     EntryType_ProcessHandle=10,       ///< Provides the process handle.
-    EntryType_LastLoadResult=11       ///< Provides the last load result.
+    EntryType_LastLoadResult=11,      ///< Provides the last load result.
+    EntryType_RandomSeed=14,          ///< Provides random data used to seed the pseudo-random number generator.
+};
+
+enum {
+    EnvAppletFlags_ApplicationOverride = BIT(0) ///< Use AppletType_Application instead of AppletType_SystemApplication.
 };
 
 /// Loader return function.
@@ -76,6 +81,9 @@ Handle envGetOwnProcessHandle(void);
 /// Returns the loader's return function, to be called on program exit.
 LoaderReturnFn envGetExitFuncPtr(void);
 
+/// Sets the return function to be called on program exit.
+void envSetExitFuncPtr(LoaderReturnFn addr);
+
 /**
  * @brief Configures the next homebrew application to load.
  * @param path Path to the next homebrew application to load (.nro).
@@ -85,3 +93,15 @@ Result envSetNextLoad(const char* path, const char* argv);
 
 /// Returns true if the environment supports envSetNextLoad.
 bool envHasNextLoad(void);
+
+/// Returns the Result from the last NRO.
+Result envGetLastLoadResult(void);
+
+/// Returns true if the environment provides a random seed.
+bool envHasRandomSeed(void);
+
+/**
+ * @brief Retrieves the random seed provided by the environment.
+ * @param out Pointer to a u64[2] buffer which will contain the random seed on return.
+ */
+void envGetRandomSeed(u64 out[2]);

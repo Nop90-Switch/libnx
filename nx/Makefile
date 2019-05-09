@@ -8,8 +8,8 @@ endif
 
 include $(DEVKITPRO)/devkitA64/base_rules
 
-export LIBNX_MAJOR	:= 1
-export LIBNX_MINOR	:= 0
+export LIBNX_MAJOR	:= 2
+export LIBNX_MINOR	:= 2
 export LIBNX_PATCH	:= 0
 
 
@@ -24,14 +24,14 @@ VERSION	:=	$(LIBNX_MAJOR).$(LIBNX_MINOR).$(LIBNX_PATCH)
 #---------------------------------------------------------------------------------
 TARGET		:=	nx
 #BUILD		:=	build
-SOURCES		:=	source/arm source/runtime source/kernel source/runtime/devices source/services source/gfx source/gfx/ioctl source/runtime/util/utf
+SOURCES		:=	source/arm source/kernel source/services source/crypto source/nvidia source/nvidia/ioctl source/display source/audio source/applets source/runtime source/runtime/devices source/runtime/util/utf
 DATA		:=	data
-INCLUDES	:=	include
+INCLUDES	:=	include external/bsd/include
 
 #---------------------------------------------------------------------------------
 # options for code generation
 #---------------------------------------------------------------------------------
-ARCH	:=	-march=armv8-a -mtune=cortex-a57 -mtp=soft -fPIC -ftls-model=local-exec
+ARCH	:=	-march=armv8-a+crc+crypto -mtune=cortex-a57 -mtp=soft -fPIC -ftls-model=local-exec
 
 CFLAGS	:=	-g -Wall -Werror \
 			-ffunction-sections \
@@ -80,8 +80,10 @@ else
 endif
 #---------------------------------------------------------------------------------
 
-export OFILES	:=	$(addsuffix .o,$(BINFILES)) \
-			$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
+export OFILES_BIN	:=	$(addsuffix .o,$(BINFILES))
+export OFILES_SRC	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
+export OFILES 	:=	$(OFILES_BIN) $(OFILES_SRC)
+export HFILES	:=	$(addsuffix .h,$(subst .,_,$(BINFILES)))
 
 export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \
@@ -94,16 +96,16 @@ export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 all: lib/libnx.a lib/libnxd.a
 
 dist-bin: all
-	@tar --exclude=*~ -cjf libnx-$(VERSION).tar.bz2 include lib default_icon.jpg switch_rules switch.ld switch.specs
+	@tar --exclude=*~ -cjf libnx-$(VERSION).tar.bz2 include lib default_icon.jpg switch_rules switch.ld switch.specs -C external/bsd include
 
 dist-src:
-	@tar --exclude=*~ -cjf libnx-src-$(VERSION).tar.bz2 include source data Makefile default_icon.jpg switch_rules switch.ld switch.specs
+	@tar --exclude=*~ -cjf libnx-src-$(VERSION).tar.bz2 include source data external Makefile default_icon.jpg switch_rules switch.ld switch.specs
 
 dist: dist-src dist-bin
 
 install: dist-bin
-	mkdir -p $(DEVKITPRO)/libnx
-	bzip2 -cd libnx-$(VERSION).tar.bz2 | tar -xf - -C $(DEVKITPRO)/libnx
+	mkdir -p $(DESTDIR)$(DEVKITPRO)/libnx
+	bzip2 -cd libnx-$(VERSION).tar.bz2 | tar -xf - -C $(DESTDIR)$(DEVKITPRO)/libnx
 
 #dox:
 #	@doxygen Doxyfile
@@ -147,8 +149,10 @@ DEPENDS	:=	$(OFILES:.o=.d)
 #---------------------------------------------------------------------------------
 $(OUTPUT)	:	$(OFILES)
 
+$(OFILES_SRC)	: $(HFILES)
+
 #---------------------------------------------------------------------------------
-%.bin.o	:	%.bin
+%_bin.h %.bin.o	:	%.bin
 #---------------------------------------------------------------------------------
 	@echo $(notdir $<)
 	@$(bin2o)

@@ -7,6 +7,7 @@
  */
 #pragma once
 #include "../types.h"
+#include "../kernel/svc.h"
 
 /// Transfer memory information structure.
 typedef struct {
@@ -25,6 +26,16 @@ typedef struct {
  * @return Result code.
  */
 Result tmemCreate(TransferMemory* t, size_t size, Permission perm);
+
+/**
+ * @brief Creates a transfer memory object from existing memory.
+ * @param t Transfer memory information structure that will be filled in.
+ * @param buf Pointer to a page-aligned buffer.
+ * @param size Size of the transfer memory object to create.
+ * @param perm Permissions with which to protect the transfer memory in the local process.
+ * @return Result code.
+ */
+Result tmemCreateFromMemory(TransferMemory* t, void* buf, size_t size, Permission perm);
 
 /**
  * @brief Loads a transfer memory object coming from a remote process.

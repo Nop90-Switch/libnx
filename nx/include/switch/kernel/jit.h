@@ -10,7 +10,7 @@
 /// JIT implementation type.
 typedef enum {
     JitType_CodeMemory, ///< JIT supported using svcSetProcessMemoryPermission
-    JitType_JitMemory,  ///< JIT supported using 4.0.0+ JIT syscalls.
+    JitType_JitMemory,  ///< JIT supported using 4.0.0+ code-memory syscalls (this isn't usable on 5.0.0+ so JitType_CodeMemory is used instead).
 } JitType;
 
 /// JIT buffer object.
@@ -20,6 +20,7 @@ typedef struct {
     void*   src_addr;
     void*   rx_addr;
     void*   rw_addr;
+    bool    is_executable;
     Handle  handle;
 } Jit;
 

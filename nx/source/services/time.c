@@ -1,7 +1,8 @@
 #include <string.h>
 #include "types.h"
 #include "result.h"
-#include "ipc.h"
+#include "arm/atomics.h"
+#include "kernel/ipc.h"
 #include "services/time.h"
 #include "services/sm.h"
 
@@ -10,13 +11,16 @@ static Service g_timeUserSystemClock;
 static Service g_timeNetworkSystemClock;
 static Service g_timeTimeZoneService;
 static Service g_timeLocalSystemClock;
+static u64 g_refCnt;
 
 static Result _timeGetSession(Service* srv_out, u64 cmd_id);
 
 Result timeInitialize(void)
 {
+    atomicIncrement64(&g_refCnt);
+
     if (serviceIsActive(&g_timeSrv))
-        return MAKERESULT(Module_Libnx, LibnxError_AlreadyInitialized);
+        return 0;
 
     Result rc;
 
@@ -46,14 +50,14 @@ Result timeInitialize(void)
 
 void timeExit(void)
 {
-    if (!serviceIsActive(&g_timeSrv))
-        return;
-
-    serviceClose(&g_timeLocalSystemClock);
-    serviceClose(&g_timeTimeZoneService);
-    serviceClose(&g_timeNetworkSystemClock);
-    serviceClose(&g_timeUserSystemClock);
-    serviceClose(&g_timeSrv);
+    if (atomicDecrement64(&g_refCnt) == 0)
+    {
+        serviceClose(&g_timeLocalSystemClock);
+        serviceClose(&g_timeTimeZoneService);
+        serviceClose(&g_timeNetworkSystemClock);
+        serviceClose(&g_timeUserSystemClock);
+        serviceClose(&g_timeSrv);
+    }
 }
 
 Service* timeGetSessionService(void) {
@@ -182,6 +186,44 @@ Result timeSetCurrentTime(TimeType type, u64 timestamp) {
         } *resp = r.Raw;
 
         rc = resp->result;
+    }
+
+    return rc;
+}
+
+Result timeToCalendarTimeWithMyRule(u64 timestamp, TimeCalendarTime *caltime, TimeCalendarAdditionalInfo *info) {
+    IpcCommand c;
+    ipcInitialize(&c);
+
+    struct {
+        u64 magic;
+        u64 cmd_id;
+        u64 timestamp;
+    } *raw;
+
+    raw = ipcPrepareHeader(&c, sizeof(*raw));
+
+    raw->magic = SFCI_MAGIC;
+    raw->cmd_id = 101;
+    raw->timestamp = timestamp;
+
+    Result rc = serviceIpcDispatch(&g_timeTimeZoneService);
+
+    if (R_SUCCEEDED(rc)) {
+        IpcParsedCommand r;
+        ipcParse(&r);
+
+        struct {
+            u64 magic;
+            u64 result;
+            TimeCalendarTime caltime;
+            TimeCalendarAdditionalInfo info;
+        } *resp = r.Raw;
+
+        rc = resp->result;
+
+        if (R_SUCCEEDED(rc) && caltime) memcpy(caltime, &resp->caltime, sizeof(TimeCalendarTime));
+        if (R_SUCCEEDED(rc) && info) memcpy(info, &resp->info, sizeof(TimeCalendarAdditionalInfo));
     }
 
     return rc;
