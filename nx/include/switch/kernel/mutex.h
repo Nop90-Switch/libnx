@@ -6,7 +6,7 @@
  */
 #pragma once
 #include <sys/lock.h>
-#include "../types.h" // not needed in this file, still including it
+#include "../types.h"
 
 /// Mutex datatype, defined in newlib.
 typedef _LOCK_T Mutex;
@@ -20,7 +20,7 @@ typedef _LOCK_RECURSIVE_T RMutex;
  */
 static inline void mutexInit(Mutex* m)
 {
-    *m = 0;
+    *m = INVALID_HANDLE;
 }
 
 /**
@@ -30,10 +30,24 @@ static inline void mutexInit(Mutex* m)
 void mutexLock(Mutex* m);
 
 /**
+ * @brief Attempts to lock a mutex without waiting.
+ * @param m Mutex object.
+ * @return 1 if the mutex has been acquired successfully, and 0 on contention.
+ */
+bool mutexTryLock(Mutex* m);
+
+/**
  * @brief Unlocks a mutex.
  * @param m Mutex object.
  */
 void mutexUnlock(Mutex* m);
+
+/**
+ * @brief Gets whether the current thread owns the mutex.
+ * @param m Mutex object.
+ * @return 1 if the mutex is locked by the current thread, and 0 otherwise.
+ */
+bool mutexIsLockedByCurrentThread(const Mutex* m);
 
 /**
  * @brief Initializes a recursive mutex.
@@ -43,7 +57,6 @@ void mutexUnlock(Mutex* m);
 static inline void rmutexInit(RMutex* m)
 {
     m->lock = 0;
-    m->thread_tag = 0;
     m->counter = 0;
 }
 
@@ -52,6 +65,13 @@ static inline void rmutexInit(RMutex* m)
  * @param m Recursive mutex object.
  */
 void rmutexLock(RMutex* m);
+
+/**
+ * @brief Attempts to lock a recursive mutex without waiting.
+ * @param m Recursive mutex object.
+ * @return 1 if the mutex has been acquired successfully, and 0 on contention.
+ */
+bool rmutexTryLock(RMutex* m);
 
 /**
  * @brief Unlocks a recursive mutex.

@@ -6,6 +6,7 @@
  */
 #pragma once
 #include "../types.h"
+#include "../services/acc.h"
 
 /// Structure representing an entry in the homebrew environment configuration.
 typedef struct {
@@ -27,16 +28,24 @@ enum {
     EntryType_OverrideHeap=3,         ///< Provides heap override information.
     EntryType_OverrideService=4,      ///< Provides service override information.
     EntryType_Argv=5,                 ///< Provides argv.
-    EntryType_SyscallAvailableHint=6, ///< Provides syscall availability hints.
+    EntryType_SyscallAvailableHint=6, ///< Provides syscall availability hints (SVCs 0x00..0x7F).
     EntryType_AppletType=7,           ///< Provides APT applet type.
     EntryType_AppletWorkaround=8,     ///< Indicates that APT is broken and should not be used.
-    EntryType_StdioSockets=9,         ///< Provides socket-based standard stream redirection information.
+    EntryType_Reserved9=9,            ///< Unused/reserved entry type, formerly used by StdioSockets.
     EntryType_ProcessHandle=10,       ///< Provides the process handle.
-    EntryType_LastLoadResult=11       ///< Provides the last load result.
+    EntryType_LastLoadResult=11,      ///< Provides the last load result.
+    EntryType_RandomSeed=14,          ///< Provides random data used to seed the pseudo-random number generator.
+    EntryType_UserIdStorage=15,       ///< Provides persistent storage for the preselected user id.
+    EntryType_HosVersion=16,          ///< Provides the currently running Horizon OS version.
+    EntryType_SyscallAvailableHint2=17, ///< Provides syscall availability hints (SVCs 0x80..0xBF).
+};
+
+enum {
+    EnvAppletFlags_ApplicationOverride = BIT(0) ///< Use AppletType_Application instead of AppletType_SystemApplication.
 };
 
 /// Loader return function.
-typedef void NORETURN (*LoaderReturnFn)(int result_code);
+typedef void NX_NORETURN (*LoaderReturnFn)(int result_code);
 
 /**
  * @brief Parses the homebrew loader environment block (internally called).
@@ -45,6 +54,11 @@ typedef void NORETURN (*LoaderReturnFn)(int result_code);
  * @param saved_lr Reserved.
  */
 void envSetup(void* ctx, Handle main_thread, LoaderReturnFn saved_lr);
+
+/// Returns information text about the loader, if present.
+const char* envGetLoaderInfo(void);
+/// Returns the size of the loader information text.
+u64 envGetLoaderInfoSize(void);
 
 /// Retrieves the handle to the main thread.
 Handle envGetMainThreadHandle(void);
@@ -68,13 +82,16 @@ void* envGetArgv(void);
  * @param svc Syscall number to test.
  * @returns true if the syscall is available.
  */
-bool envIsSyscallHinted(u8 svc);
+bool envIsSyscallHinted(unsigned svc);
 
 /// Returns the handle to the running homebrew process.
 Handle envGetOwnProcessHandle(void);
 
 /// Returns the loader's return function, to be called on program exit.
 LoaderReturnFn envGetExitFuncPtr(void);
+
+/// Sets the return function to be called on program exit.
+void envSetExitFuncPtr(LoaderReturnFn addr);
 
 /**
  * @brief Configures the next homebrew application to load.
@@ -85,3 +102,18 @@ Result envSetNextLoad(const char* path, const char* argv);
 
 /// Returns true if the environment supports envSetNextLoad.
 bool envHasNextLoad(void);
+
+/// Returns the Result from the last NRO.
+Result envGetLastLoadResult(void);
+
+/// Returns true if the environment provides a random seed.
+bool envHasRandomSeed(void);
+
+/**
+ * @brief Retrieves the random seed provided by the environment.
+ * @param out Pointer to a u64[2] buffer which will contain the random seed on return.
+ */
+void envGetRandomSeed(u64 out[2]);
+
+/// Returns a pointer to the user id storage area (if present).
+AccountUid* envGetUserIdStorage(void);

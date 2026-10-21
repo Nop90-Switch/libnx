@@ -48,7 +48,7 @@ SVC_BEGIN svcQueryMemory
 SVC_END
 
 SVC_BEGIN svcExitProcess
-	svc  0x7
+	svc 0x7
 	ret
 SVC_END
 
@@ -61,17 +61,54 @@ SVC_BEGIN svcCreateThread
 SVC_END
 
 SVC_BEGIN svcStartThread
-	svc  0x9
+	svc 0x9
 	ret
 SVC_END
 
 SVC_BEGIN svcExitThread
-	svc  0xA
+	svc 0xA
 	ret
 SVC_END
 
 SVC_BEGIN svcSleepThread
 	svc 0xB
+	ret
+SVC_END
+
+SVC_BEGIN svcGetThreadPriority
+	str x0, [sp, #-16]!
+	svc 0xC
+	ldr x2, [sp], #16
+	str w1, [x2]
+	ret
+SVC_END
+
+SVC_BEGIN svcSetThreadPriority
+	svc 0xD
+	ret
+SVC_END
+
+SVC_BEGIN svcGetThreadCoreMask
+	stp x0, x1, [sp, #-16]!
+	svc 0xE
+	ldp x3, x4, [sp], #16
+	str w1, [x3]
+	str x2, [x4]
+	ret
+SVC_END
+
+SVC_BEGIN svcSetThreadCoreMask
+	svc 0xF
+	ret
+SVC_END
+
+SVC_BEGIN svcGetCurrentProcessorNumber
+	svc 0x10
+	ret
+SVC_END
+
+SVC_BEGIN svcSignalEvent
+	svc 0x11
 	ret
 SVC_END
 
@@ -122,22 +159,27 @@ SVC_BEGIN svcCancelSynchronization
 SVC_END
 
 SVC_BEGIN svcArbitrateLock
-	svc 0x1a
+	svc 0x1A
 	ret
 SVC_END
 
 SVC_BEGIN svcArbitrateUnlock
-	svc 0x1b
+	svc 0x1B
 	ret
 SVC_END
 
 SVC_BEGIN svcWaitProcessWideKeyAtomic
-	svc 0x1c
+	svc 0x1C
 	ret
 SVC_END
 
 SVC_BEGIN svcSignalProcessWideKey
-	svc 0x1d
+	svc 0x1D
+	ret
+SVC_END
+
+SVC_BEGIN svcGetSystemTick
+	svc 0x1E
 	ret
 SVC_END
 
@@ -149,8 +191,8 @@ SVC_BEGIN svcConnectToNamedPort
 	ret
 SVC_END
 
-SVC_BEGIN svcGetSystemTick
-	svc 0x1E
+SVC_BEGIN svcSendSyncRequestLight
+	svc 0x20
 	ret
 SVC_END
 
@@ -159,9 +201,30 @@ SVC_BEGIN svcSendSyncRequest
 	ret
 SVC_END
 
+SVC_BEGIN svcSendSyncRequestWithUserBuffer
+	svc 0x22
+	ret
+SVC_END
+
+SVC_BEGIN svcSendAsyncRequestWithUserBuffer
+	str x0, [sp, #-16]!
+	svc 0x23
+	ldr x2, [sp], #16
+	str w1, [x2]
+	ret
+SVC_END
+
 SVC_BEGIN svcGetProcessId
 	str x0, [sp, #-16]!
 	svc 0x24
+	ldr x2, [sp], #16
+	str x1, [x2]
+	ret
+SVC_END
+
+SVC_BEGIN svcGetThreadId
+	str x0, [sp, #-16]!
+	svc 0x25
 	ldr x2, [sp], #16
 	str x1, [x2]
 	ret
@@ -177,6 +240,11 @@ SVC_BEGIN svcOutputDebugString
 	ret
 SVC_END
 
+SVC_BEGIN svcReturnFromException
+	svc 0x28
+	ret
+SVC_END
+
 SVC_BEGIN svcGetInfo
 	str x0, [sp, #-16]!
 	svc 0x29
@@ -185,8 +253,126 @@ SVC_BEGIN svcGetInfo
 	ret
 SVC_END
 
+SVC_BEGIN svcFlushEntireDataCache
+	svc 0x2A
+	ret
+SVC_END
+
+SVC_BEGIN svcFlushDataCache
+	svc 0x2B
+	ret
+SVC_END
+
+SVC_BEGIN svcMapPhysicalMemory
+	svc 0x2C
+	ret
+SVC_END
+
+SVC_BEGIN svcUnmapPhysicalMemory
+	svc 0x2D
+	ret
+SVC_END
+
+SVC_BEGIN svcGetDebugFutureThreadInfo
+	stp x0, x1, [sp, #-16]!
+	svc 0x2E
+	ldp x6, x7, [sp], #16
+	stp x1, x2, [x6]
+	stp x3, x4, [x6, #16]
+	str x5, [x7]
+	ret
+SVC_END
+
+SVC_BEGIN svcGetLastThreadInfo
+	stp x1, x2, [sp, #-16]!
+	str x0, [sp, #-16]!
+	svc 0x2F
+	ldr x7, [sp], #16
+	stp x1, x2, [x7]
+	stp x3, x4, [x7, #16]
+	ldp x1, x2, [sp], #16
+	str x5, [x1]
+	str w6, [x2]
+	ret
+SVC_END
+
+SVC_BEGIN svcGetResourceLimitLimitValue
+	str x0, [sp, #-16]!
+	svc 0x30
+	ldr x2, [sp], #16
+	str x1, [x2]
+	ret
+SVC_END
+
+SVC_BEGIN svcGetResourceLimitCurrentValue
+	str x0, [sp, #-16]!
+	svc 0x31
+	ldr x2, [sp], #16
+	str x1, [x2]
+	ret
+SVC_END
+
 SVC_BEGIN svcSetThreadActivity
 	svc 0x32
+	ret
+SVC_END
+
+SVC_BEGIN svcGetThreadContext3
+	svc 0x33
+	ret
+SVC_END
+
+SVC_BEGIN svcWaitForAddress
+	svc 0x34
+	ret
+SVC_END
+
+SVC_BEGIN svcSignalToAddress
+	svc 0x35
+	ret
+SVC_END
+
+SVC_BEGIN svcSynchronizePreemptionState
+	svc 0x36
+	ret
+SVC_END
+
+SVC_BEGIN svcGetResourceLimitPeakValue
+	str x0, [sp, #-16]!
+	svc 0x37
+	ldr x2, [sp], #16
+	str x1, [x2]
+	ret
+SVC_END
+
+SVC_BEGIN svcCreateIoPool
+	str x0, [sp, #-16]!
+	svc 0x39
+	ldr x2, [sp], #16
+	str w1, [x2]
+	ret
+SVC_END
+
+SVC_BEGIN svcCreateIoRegion
+	str x0, [sp, #-16]!
+	svc 0x3A
+	ldr x2, [sp], #16
+	str w1, [x2]
+	ret
+SVC_END
+
+SVC_BEGIN svcDumpInfo
+	svc 0x3C
+	ret
+SVC_END
+
+SVC_BEGIN svcKernelDebug
+	svc 0x3C
+	ret
+SVC_END
+
+SVC_BEGIN svcChangeKernelTraceState
+	svc 0x3D
 	ret
 SVC_END
 
@@ -207,6 +393,11 @@ SVC_BEGIN svcAcceptSession
 	ret
 SVC_END
 
+SVC_BEGIN svcReplyAndReceiveLight
+	svc 0x42
+	ret
+SVC_END
+
 SVC_BEGIN svcReplyAndReceive
 	str x0, [sp, #-16]!
 	svc 0x43
@@ -215,7 +406,49 @@ SVC_BEGIN svcReplyAndReceive
 	ret
 SVC_END
 
-SVC_BEGIN svcCreateJitMemory
+SVC_BEGIN svcReplyAndReceiveWithUserBuffer
+	str x0, [sp, #-16]!
+	svc 0x44
+	ldr x2, [sp], #16
+	str w1, [x2]
+	ret
+SVC_END
+
+SVC_BEGIN svcCreateEvent
+	stp x0, x1, [sp, #-16]!
+	svc 0x45
+	ldp x3, x4, [sp], #16
+	str w1, [x3]
+	str w2, [x4]
+	ret
+SVC_END
+
+SVC_BEGIN svcMapIoRegion
+	svc 0x46
+	ret
+SVC_END
+
+SVC_BEGIN svcUnmapIoRegion
+	svc 0x47
+	ret
+SVC_END
+
+SVC_BEGIN svcMapPhysicalMemoryUnsafe
+	svc 0x48
+	ret
+SVC_END
+
+SVC_BEGIN svcUnmapPhysicalMemoryUnsafe
+	svc 0x49
+	ret
+SVC_END
+
+SVC_BEGIN svcSetUnsafeLimit
+	svc 0x4A
+	ret
+SVC_END
+
+SVC_BEGIN svcCreateCodeMemory
 	str x0, [sp, #-16]!
 	svc 0x4B
 	ldr x2, [sp], #16
@@ -223,8 +456,26 @@ SVC_BEGIN svcCreateJitMemory
 	ret
 SVC_END
 
-SVC_BEGIN svcMapJitMemory
+SVC_BEGIN svcControlCodeMemory
 	svc 0x4C
+	ret
+SVC_END
+
+SVC_BEGIN svcSleepSystem
+	svc 0x4D
+	ret
+SVC_END
+
+SVC_BEGIN svcReadWriteRegister
+	str x0, [sp, #-16]!
+	svc 0x4E
+	ldr x2, [sp], #16
+	str w1, [x2]
+	ret
+SVC_END
+
+SVC_BEGIN svcSetProcessActivity
+	svc 0x4F
 	ret
 SVC_END
 
@@ -246,6 +497,14 @@ SVC_BEGIN svcUnmapTransferMemory
 	ret
 SVC_END
 
+SVC_BEGIN svcCreateInterruptEvent
+	str x0, [sp, #-16]!
+	svc 0x53
+	ldr x2, [sp], #16
+	str w1, [x2]
+	ret
+SVC_END
+
 SVC_BEGIN svcQueryPhysicalAddress
 	str x0, [sp, #-16]!
 	svc 0x54
@@ -255,7 +514,16 @@ SVC_BEGIN svcQueryPhysicalAddress
 	ret
 SVC_END
 
-SVC_BEGIN svcQueryIoMapping
+SVC_BEGIN svcQueryMemoryMapping
+	stp x0, x1, [sp, #-16]!
+	svc 0x55
+	ldp x3, x4, [sp], #16
+	str x1, [x3]
+	str x2, [x4]
+	ret
+SVC_END
+
+SVC_BEGIN svcLegacyQueryIoMapping
 	str x0, [sp, #-16]!
 	svc 0x55
 	ldr x2, [sp], #16
@@ -281,13 +549,41 @@ SVC_BEGIN svcDetachDeviceAddressSpace
 	ret
 SVC_END
 
+SVC_BEGIN svcMapDeviceAddressSpaceByForce
+	svc 0x59
+	ret
+SVC_END
+
 SVC_BEGIN svcMapDeviceAddressSpaceAligned
 	svc 0x5A
 	ret
 SVC_END
 
+SVC_BEGIN svcMapDeviceAddressSpace
+	str x0, [sp, #-16]!
+	svc 0x5B
+	ldr x2, [sp], #16
+	str w1, [x2]
+	ret
+SVC_END
+
 SVC_BEGIN svcUnmapDeviceAddressSpace
 	svc 0x5C
+	ret
+SVC_END
+
+SVC_BEGIN svcInvalidateProcessDataCache
+	svc 0x5D
+	ret
+SVC_END
+
+SVC_BEGIN svcStoreProcessDataCache
+	svc 0x5E
+	ret
+SVC_END
+
+SVC_BEGIN svcFlushProcessDataCache
+	svc 0x5F
 	ret
 SVC_END
 
@@ -304,8 +600,18 @@ SVC_BEGIN svcBreakDebugProcess
 	ret
 SVC_END
 
+SVC_BEGIN svcTerminateDebugProcess
+	svc 0x62
+	ret
+SVC_END
+
 SVC_BEGIN svcGetDebugEvent
 	svc 0x63
+	ret
+SVC_END
+
+SVC_BEGIN svcLegacyContinueDebugEvent
+	svc 0x64
 	ret
 SVC_END
 
@@ -322,8 +628,21 @@ SVC_BEGIN svcGetProcessList
 	ret
 SVC_END
 
+SVC_BEGIN svcGetThreadList
+	str x0, [sp, #-16]!
+	svc 0x66
+	ldr x2, [sp], #16
+	str w1, [x2]
+	ret
+SVC_END
+
 SVC_BEGIN svcGetDebugThreadContext
 	svc 0x67
+	ret
+SVC_END
+
+SVC_BEGIN svcSetDebugThreadContext
+	svc 0x68
 	ret
 SVC_END
 
@@ -345,9 +664,48 @@ SVC_BEGIN svcWriteDebugProcessMemory
 	ret
 SVC_END
 
+SVC_BEGIN svcSetHardwareBreakPoint
+	svc 0x6C
+	ret
+SVC_END
+
+SVC_BEGIN svcGetDebugThreadParam
+	stp x0, x1, [sp, #-16]!
+	svc 0x6D
+	ldp x3, x4, [sp], #16
+	str x1, [x3]
+	str w2, [x4]
+	ret
+SVC_END
+
+SVC_BEGIN svcGetSystemInfo
+	str x0, [sp, #-16]!
+	svc 0x6F
+	ldr x2, [sp], #16
+	str x1, [x2]
+	ret
+SVC_END
+
+SVC_BEGIN svcCreatePort
+	stp x0, x1, [sp, #-16]!
+	svc 0x70
+	ldp x3, x4, [sp], #16
+	str w1, [x3]
+	str w2, [x4]
+	ret
+SVC_END
+
 SVC_BEGIN svcManageNamedPort
 	str x0, [sp, #-16]!
 	svc 0x71
+	ldr x2, [sp], #16
+	str w1, [x2]
+	ret
+SVC_END
+
+SVC_BEGIN svcConnectToPort
+	str x0, [sp, #-16]!
+	svc 0x72
 	ldr x2, [sp], #16
 	str w1, [x2]
 	ret
@@ -360,6 +718,19 @@ SVC_END
 
 SVC_BEGIN svcMapProcessMemory
 	svc 0x74
+	ret
+SVC_END
+
+SVC_BEGIN svcUnmapProcessMemory
+	svc 0x75
+	ret
+SVC_END
+
+SVC_BEGIN svcQueryProcessMemory
+	str x1, [sp, #-16]!
+	svc 0x76
+	ldr x2, [sp], #16
+	str w1, [x2]
 	ret
 SVC_END
 
@@ -386,6 +757,32 @@ SVC_BEGIN svcStartProcess
 	ret
 SVC_END
 
+SVC_BEGIN svcTerminateProcess
+	svc 0x7B
+	ret
+SVC_END
+
+SVC_BEGIN svcGetProcessInfo
+	str x0, [sp, #-16]!
+	svc 0x7C
+	ldr x2, [sp], #16
+	str w1, [x2]
+	ret
+SVC_END
+
+SVC_BEGIN svcCreateResourceLimit
+	str x0, [sp, #-16]!
+	svc 0x7D
+	ldr x2, [sp], #16
+	str w1, [x2]
+	ret
+SVC_END
+
+SVC_BEGIN svcSetResourceLimitLimitValue
+	svc 0x7E
+	ret
+SVC_END
+
 SVC_BEGIN svcCallSecureMonitor
 	str x0, [sp, #-16]!
 	mov x8, x0
@@ -399,5 +796,15 @@ SVC_BEGIN svcCallSecureMonitor
 	stp x2, x3, [x8, #0x10]
 	stp x4, x5, [x8, #0x20]
 	stp x6, x7, [x8, #0x30]
+	ret
+SVC_END
+
+SVC_BEGIN svcMapInsecurePhysicalMemory
+	svc 0x90
+	ret
+SVC_END
+
+SVC_BEGIN svcUnmapInsecurePhysicalMemory
+	svc 0x91
 	ret
 SVC_END

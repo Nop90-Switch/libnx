@@ -1,5 +1,8 @@
 #include <string.h>
 #include <ctype.h>
+#include <stdlib.h>
+#include <netinet/in.h>
+
 #include "result.h"
 #include "runtime/env.h"
 #include "kernel/svc.h"
@@ -11,17 +14,19 @@ char** __system_argv;
 extern char* fake_heap_start;
 extern char* fake_heap_end;
 
-extern u32 __argdata__;
+extern u8 __argdata__[];
 
 static char* g_argv_empty = NULL;
 
-void argvSetup(void)
+void nxlinkSetup(void);
+
+void __attribute__((weak)) argvSetup(void)
 {
     Result rc=0;
     MemoryInfo meminfo;
     u32 pageinfo=0;
 
-    u8 *argdata = (u8*)&__argdata__;
+    u8 *argdata = __argdata__;
     u32 *arg32 = (u32*)argdata;
     u64 argdata_allocsize=0;
     u64 argdata_strsize=0;
@@ -88,7 +93,7 @@ void argvSetup(void)
     argstart = NULL;
 
     for(argi=0; argi<argdata_strsize; argi++) {
-        if (argstart == NULL && isspace(args[argi])) continue;
+        if (argstart == NULL && isspace((unsigned char)args[argi])) continue;
 
         if (argstart == NULL) {
             if (args[argi] == '"') {
@@ -106,7 +111,7 @@ void argvSetup(void)
             if (quote_flag) {
                 if (args[argi] == '"') end_flag = 1;
             }
-            else if (isspace(args[argi])) {
+            else if (isspace((unsigned char)args[argi])) {
                 end_flag = 1;
             }
 
@@ -136,6 +141,12 @@ void argvSetup(void)
         __system_argc++;
     }
 
+
+    // Check for nxlink parameters
+    nxlinkSetup();
+
     __system_argv[__system_argc] = NULL;
+
+
 }
 

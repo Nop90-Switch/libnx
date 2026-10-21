@@ -7,6 +7,7 @@
  */
 #pragma once
 #include "../types.h"
+#include "../kernel/svc.h"
 
 /// Transfer memory information structure.
 typedef struct {
@@ -25,6 +26,16 @@ typedef struct {
  * @return Result code.
  */
 Result tmemCreate(TransferMemory* t, size_t size, Permission perm);
+
+/**
+ * @brief Creates a transfer memory object from existing memory.
+ * @param t Transfer memory information structure that will be filled in.
+ * @param buf Pointer to a page-aligned buffer.
+ * @param size Size of the transfer memory object to create.
+ * @param perm Permissions with which to protect the transfer memory in the local process.
+ * @return Result code.
+ */
+Result tmemCreateFromMemory(TransferMemory* t, void* buf, size_t size, Permission perm);
 
 /**
  * @brief Loads a transfer memory object coming from a remote process.
@@ -60,6 +71,21 @@ Result tmemUnmap(TransferMemory* t);
 static inline void* tmemGetAddr(TransferMemory* t){
     return t->map_addr;
 }
+
+/**
+ * @brief Closes handle of a transfer memory object.
+ * @param t Transfer memory information structure.
+ * @return Result code.
+ */
+Result tmemCloseHandle(TransferMemory* t);
+
+/**
+ * @brief Waits until source backing memory permissions match perm.
+ * @param t Transfer memory information structure.
+ * @param perm Permissions which the source backing memory is expected to have before return.
+ * @return Result code.
+ */
+Result tmemWaitForPermission(TransferMemory* t, Permission perm);
 
 /**
  * @brief Frees up resources used by a transfer memory object, unmapping and closing handles, etc.

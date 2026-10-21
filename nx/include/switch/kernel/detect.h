@@ -1,17 +1,24 @@
 /**
  * @file detect.h
- * @brief Kernel version detection
+ * @brief Kernel capability detection
  * @author plutoo
  * @copyright libnx Authors
  */
 #pragma once
 #include "../types.h"
+#include "../result.h"
+#include "svc.h"
 
-/// Returns true if the kernel version is equal to or above 2.0.0.
-bool kernelAbove200(void);
-/// Returns true if the kernel version is equal to or above 3.0.0.
-bool kernelAbove300(void);
-/// Returns true if the kernel version is equal to or above 4.0.0.
-bool kernelAbove400(void);
 /// Returns true if the process has a debugger attached.
-bool detectDebugger(void);
+NX_INLINE bool detectDebugger(void) {
+    u64 tmp = 0;
+    Result rc = svcGetInfo(&tmp, InfoType_DebuggerAttached, INVALID_HANDLE, 0);
+    return R_SUCCEEDED(rc) && tmp != 0;
+}
+
+/// Returns true if the underlying kernel is Mesosphère.
+NX_INLINE bool detectMesosphere(void) {
+    u64 dummy = 0;
+    Result rc = svcGetInfo(&dummy, 65000, INVALID_HANDLE, 0); // InfoType_MesosphereMeta
+    return R_SUCCEEDED(rc);
+}

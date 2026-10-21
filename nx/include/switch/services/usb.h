@@ -1,87 +1,128 @@
 /**
  * @file usb.h
- * @brief USB (usb:*) service IPC wrapper.
- * @author yellows8
+ * @brief Common USB (usb:*) service IPC header.
+ * @author SciresM, yellows8
  * @copyright libnx Authors
  */
 #pragma once
 #include "../types.h"
-#include "../services/sm.h"
-
-/// usb:ds Switch-as-device<>host USB comms, see also here: http://switchbrew.org/index.php?title=USB_services
 
 /// Names starting with "libusb" were changed to "usb" to avoid collision with actual libusb if it's ever used.
 
-#define USBDS_DEFAULT_InterfaceNumber 0x4 ///Value for usb_interface_descriptor bInterfaceNumber for automatically allocating the actual bInterfaceNumber.
-
 /// Imported from libusb with changed names.
 /* Descriptor sizes per descriptor type */
-#define USB_DT_INTERFACE_SIZE        9
-#define USB_DT_ENDPOINT_SIZE         7
+#define USB_DT_INTERFACE_SIZE             0x09
+#define USB_DT_ENDPOINT_SIZE              0x07
+#define USB_DT_INTERFACE_ASSOCIATION_SIZE 0x08
+#define USB_DT_DEVICE_SIZE                0x12
+#define USB_DT_HID_SIZE                   0x09
+#define USB_DT_SS_ENDPOINT_COMPANION_SIZE 0x06
+
+#define USB_ENDPOINT_ADDRESS_MASK 0x0f    /* in bEndpointAddress */
+#define USB_ENDPOINT_DIR_MASK 0x80
+
+#define USB_TRANSFER_TYPE_MASK 0x03 /* in bmAttributes */
+
+/// Imported from libusb, with some adjustments.
+struct usb_control_setup {
+    uint8_t  bmRequestType;
+    uint8_t  bRequest;
+    uint16_t wValue;
+    uint16_t wIndex;
+    uint16_t wLength;
+};
 
 /// Imported from libusb, with some adjustments.
 struct usb_endpoint_descriptor {
     uint8_t  bLength;
-    uint8_t  bDescriptorType; /// Must match USB_DT_ENDPOINT.
-    uint8_t  bEndpointAddress; /// Should be one of the usb_endpoint_direction values, the endpoint-number is automatically allocated.
+    uint8_t  bDescriptorType; ///< Must match USB_DT_ENDPOINT.
+    uint8_t  bEndpointAddress; ///< Should be one of the usb_endpoint_direction values, the endpoint-number is automatically allocated.
     uint8_t  bmAttributes;
     uint16_t wMaxPacketSize;
     uint8_t  bInterval;
-};
+} NX_PACKED;
 
 /// Imported from libusb, with some adjustments.
 struct usb_interface_descriptor {
     uint8_t  bLength;
-    uint8_t  bDescriptorType; /// Must match USB_DT_INTERFACE.
-    uint8_t  bInterfaceNumber; /// See also USBDS_DEFAULT_InterfaceNumber.
-    uint8_t  bAlternateSetting; /// Must match 0.
-    uint8_t  bNumEndpoints; /// Ignored.
+    uint8_t  bDescriptorType; ///< Must match USB_DT_INTERFACE.
+    uint8_t  bInterfaceNumber; ///< See also USBDS_DEFAULT_InterfaceNumber.
+    uint8_t  bAlternateSetting; ///< Must match 0.
+    uint8_t  bNumEndpoints;
     uint8_t  bInterfaceClass;
     uint8_t  bInterfaceSubClass;
     uint8_t  bInterfaceProtocol;
-    uint8_t  iInterface; /// Ignored.
+    uint8_t  iInterface; ///< Ignored.
 };
 
-typedef struct {
-    u16 idVendor; /// VID
-    u16 idProduct; /// PID
-    u16 bcdDevice;
-    char Manufacturer[0x20];
-    char Product[0x20];
-    char SerialNumber[0x20];
-} usbDsDeviceInfo;
+/// Imported from libusb, with some adjustments.
+struct usb_device_descriptor {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType; ///< Must match USB_DT_Device.
+    uint16_t bcdUSB;
+    uint8_t  bDeviceClass;
+    uint8_t  bDeviceSubClass;
+    uint8_t  bDeviceProtocol;
+    uint8_t  bMaxPacketSize0;
+    uint16_t idVendor;
+    uint16_t idProduct;
+    uint16_t bcdDevice;
+    uint8_t  iManufacturer;
+    uint8_t  iProduct;
+    uint8_t  iSerialNumber;
+    uint8_t  bNumConfigurations;
+};
 
-typedef struct {
-    u32 id; /// urbId from post-buffer cmds
-    u32 requestedSize;
-    u32 transferredSize;
-    u32 urb_status;
-} usbDsReportEntry;
+/// Imported from libusb, with some adjustments.
+struct usb_config_descriptor {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType;
+    uint16_t wTotalLength;
+    uint8_t  bNumInterfaces;
+    uint8_t  bConfigurationValue;
+    uint8_t  iConfiguration;
+    uint8_t  bmAttributes;
+    uint8_t  MaxPower;
+} NX_PACKED;
 
-typedef struct {
-    usbDsReportEntry report[8];
-    u32 report_count;
-} usbDsReportData;
+/// Imported from libusb, with some adjustments.
+struct usb_ss_endpoint_companion_descriptor {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType; ///< Must match USB_DT_SS_ENDPOINT_COMPANION.
+    uint8_t  bMaxBurst;
+    uint8_t  bmAttributes;
+    uint16_t wBytesPerInterval;
+};
 
-typedef struct {
-    bool initialized;
-    u32 interface_index;
-    Service  h;
+/// Imported from libusb, with some adjustments.
+struct usb_string_descriptor {
+    uint8_t bLength;
+    uint8_t bDescriptorType; ///< Must match USB_DT_STRING.
+    uint16_t wData[0x40];
+};
 
-    Handle SetupEvent;
-    Handle CtrlInCompletionEvent;
-    Handle CtrlOutCompletionEvent;
-} UsbDsInterface;
+/// Imported from libusb, with some adjustments.
+struct usb_interface_association_descriptor {
+    uint8_t bLength;
+    uint8_t bDescriptorType; ///< Must match USB_DT_INTERFACE_ASSOCIATION.
+    uint8_t bFirstInterface;
+    uint8_t bInterfaceCount;
+    uint8_t bFunctionClass;
+    uint8_t bFunctionSubClass;
+    uint8_t bFunctionProtocol;
+    uint8_t iFunction;
+};
 
-typedef struct {
-    bool initialized;
-    Service h;
-    Handle CompletionEvent;
-} UsbDsEndpoint;
-
-typedef enum {
-    UsbComplexId_Default = 0x2
-} UsbComplexId;
+/// Imported from libusb, with some adjustments.
+struct usb_hid_descriptor {
+    uint8_t  bLength;
+    uint8_t  bDescriptorType; ///< Must match USB_DT_HID.
+    uint16_t bcdHID;
+    uint8_t  bCountryCode;
+    uint8_t  bNumDescriptors;
+    uint8_t  bClassDescriptorType;
+    uint16_t wClassDescriptorLength;
+} NX_PACKED;
 
 /// Imported from libusb, with changed names.
 enum usb_class_code {
@@ -113,6 +154,7 @@ enum usb_descriptor_type {
     USB_DT_STRING = 0x03,
     USB_DT_INTERFACE = 0x04,
     USB_DT_ENDPOINT = 0x05,
+    USB_DT_INTERFACE_ASSOCIATION = 0x0b,
     USB_DT_BOS = 0x0f,
     USB_DT_DEVICE_CAPABILITY = 0x10,
     USB_DT_HID = 0x21,
@@ -139,6 +181,69 @@ enum usb_transfer_type {
 };
 
 /// Imported from libusb, with changed names.
+enum usb_standard_request {
+    /** Request status of the specific recipient */
+    USB_REQUEST_GET_STATUS = 0x00,
+
+    /** Clear or disable a specific feature */
+    USB_REQUEST_CLEAR_FEATURE = 0x01,
+
+    /* 0x02 is reserved */
+
+    /** Set or enable a specific feature */
+    USB_REQUEST_SET_FEATURE = 0x03,
+
+    /* 0x04 is reserved */
+
+    /** Set device address for all future accesses */
+    USB_REQUEST_SET_ADDRESS = 0x05,
+
+    /** Get the specified descriptor */
+    USB_REQUEST_GET_DESCRIPTOR = 0x06,
+
+    /** Used to update existing descriptors or add new descriptors */
+    USB_REQUEST_SET_DESCRIPTOR = 0x07,
+
+    /** Get the current device configuration value */
+    USB_REQUEST_GET_CONFIGURATION = 0x08,
+
+    /** Set device configuration */
+    USB_REQUEST_SET_CONFIGURATION = 0x09,
+
+    /** Return the selected alternate setting for the specified interface */
+    USB_REQUEST_GET_INTERFACE = 0x0A,
+
+    /** Select an alternate interface for the specified interface */
+    USB_REQUEST_SET_INTERFACE = 0x0B,
+
+    /** Set then report an endpoint's synchronization frame */
+    USB_REQUEST_SYNCH_FRAME = 0x0C,
+
+    /** Sets both the U1 and U2 Exit Latency */
+    USB_REQUEST_SET_SEL = 0x30,
+
+    /** Delay from the time a host transmits a packet to the time it is
+     * received by the device. */
+    USB_SET_ISOCH_DELAY = 0x31,
+};
+
+/// Imported from libusb, with changed names.
+enum usb_request_type {
+    USB_REQUEST_TYPE_STANDARD = (0x00 << 5),
+    USB_REQUEST_TYPE_CLASS = (0x01 << 5),
+    USB_REQUEST_TYPE_VENDOR = (0x02 << 5),
+    USB_REQUEST_TYPE_RESERVED = (0x03 << 5)
+};
+
+/// Imported from libusb, with changed names.
+enum usb_request_recipient {
+    USB_RECIPIENT_DEVICE = 0x00,
+    USB_RECIPIENT_INTERFACE = 0x01,
+    USB_RECIPIENT_ENDPOINT = 0x02,
+    USB_RECIPIENT_OTHER = 0x03
+};
+
+/// Imported from libusb, with changed names.
 enum usb_iso_sync_type {
     USB_ISO_SYNC_TYPE_NONE = 0,
     USB_ISO_SYNC_TYPE_ASYNC = 1,
@@ -153,38 +258,14 @@ enum usb_iso_usage_type {
     USB_ISO_USAGE_TYPE_IMPLICIT = 2,
 };
 
-Result usbDsInitialize(UsbComplexId complexId, const usbDsDeviceInfo* deviceinfo);
-
-/// Exit usbDs. Any interfaces/endpoints which are left open are automatically closed, since otherwise usb-sysmodule won't fully reset usbds to defaults.
-void usbDsExit(void);
-
-Service* usbDsGetServiceSession(void);
-Handle usbDsGetStateChangeEvent(void);
-
-Result usbDsGetState(u32 *out);
-Result usbDsGetDsInterface(UsbDsInterface** interface, struct usb_interface_descriptor* descriptor, const char *interface_name);
-
-/// Wait for initialization to finish where data-transfer is usable.
-Result usbDsWaitReady(void);
-
-/// Parse usbDsReportData from the Get*ReportData commands, where urbId is from the post-buffer commands. Will return the converted urb_status result-value.
-Result usbDsParseReportData(usbDsReportData *reportdata, u32 urbId, u32 *requestedSize, u32 *transferredSize);
-
-/// IDsInterface
-void usbDsInterface_Close(UsbDsInterface* interface);
-Result usbDsInterface_GetDsEndpoint(UsbDsInterface* interface, UsbDsEndpoint** endpoint, struct usb_endpoint_descriptor* descriptor);
-Result usbDsInterface_EnableInterface(UsbDsInterface* interface);
-Result usbDsInterface_DisableInterface(UsbDsInterface* interface);
-Result usbDsInterface_CtrlInPostBufferAsync(UsbDsInterface* interface, void* buffer, size_t size, u32 *urbId);
-Result usbDsInterface_CtrlOutPostBufferAsync(UsbDsInterface* interface, void* buffer, size_t size, u32 *urbId);
-Result usbDsInterface_GetCtrlInReportData(UsbDsInterface* interface, usbDsReportData *out);
-Result usbDsInterface_GetCtrlOutReportData(UsbDsInterface* interface, usbDsReportData *out);
-Result usbDsInterface_StallCtrl(UsbDsInterface* interface);
-
-/// IDsEndpoint
-
-void usbDsEndpoint_Close(UsbDsEndpoint* endpoint);
-Result usbDsEndpoint_PostBufferAsync(UsbDsEndpoint* endpoint, void* buffer, size_t size, u32 *urbId);
-Result usbDsEndpoint_GetReportData(UsbDsEndpoint* endpoint, usbDsReportData *out);
-Result usbDsEndpoint_StallCtrl(UsbDsEndpoint* endpoint);
+/// USB Device States, per USB 2.0 spec
+typedef enum {
+    UsbState_Detached   = 0, ///< Device is not attached to USB.
+    UsbState_Attached   = 1, ///< Device is attached, but is not powered.
+    UsbState_Powered    = 2, ///< Device is attached and powered, but has not been reset.
+    UsbState_Default    = 3, ///< Device is attached, powered, and has been reset, but does not have an address.
+    UsbState_Address    = 4, ///< Device is attached, powered, has been reset, has an address, but is not configured.
+    UsbState_Configured = 5, ///< Device is attached, powered, has been reset, has an address, configured, and may be used.
+    UsbState_Suspended  = 6, ///< Device is attached and powered, but has not seen bus activity for 3ms. Device is suspended and cannot be used.
+} UsbState;
 
